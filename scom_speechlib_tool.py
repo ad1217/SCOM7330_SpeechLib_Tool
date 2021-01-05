@@ -48,16 +48,16 @@ def make_header(firstFree: int, timestamp: Optional[str] = None,
         now = datetime.now()
         timestamp = now.strftime("%m/%y/%d %H:%M")
     header = bytearray(b'\xff' * 0x100)
-    assign_pos(header, 0, b"SCOM\x00")  # static string
-    assign_pos(header, 5, b"SCOM Cust ALib")  # static string
-    assign_pos(header, 16 + 5, b"1.0.0")   # version, static in source
-    assign_pos(header, 2 * 16 + 1, timestamp.encode('ascii'))  # timestamp
-    header[3*16 + 8] = 3  # 3 in normal mode, 2 in extended arguments mode
+    assign_pos(header, 0x00, b"SCOM\x00")  # static string
+    assign_pos(header, 0x05, b"SCOM Cust ALib")  # static string
+    assign_pos(header, 0x15, b"1.0.0")   # version, static in source
+    assign_pos(header, 0x21, timestamp.encode('ascii'))  # timestamp
+    header[0x38] = 3  # 3 in normal mode, 2 in extended arguments mode
     # TODO: why is this -0x100? seems to be ignoring this header?
-    assign_pos(header, 3*16 + 9, (firstFree - 0x100).to_bytes(3, "big"))
+    assign_pos(header, 0x39, (firstFree - 0x100).to_bytes(3, "big"))
     # there were arguments to the original function, but the function
     # was passed literal zeros...
-    assign_pos(header, 3*16 + 12, b'\x00\x00\x00\x00')
+    assign_pos(header, 0x3c, b'\x00\x00\x00\x00')
 
     # sanity check
     assert len(header) == 0x100
