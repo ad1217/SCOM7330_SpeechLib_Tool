@@ -3,20 +3,19 @@
 import os
 import sys
 from datetime import datetime
-from typing import BinaryIO, ByteString, Dict, Iterable, Optional
+from typing import BinaryIO, ByteString, Dict, Optional
 
 
 def arbitrary_round(x: int, base: int) -> int:
     return base * round(x / base)
 
 
-def invert_high_bytes(data: ByteString) -> Iterable[int]:
+def invert_high_byte(byte: int) -> int:
     # I have no idea why their code does this
-    for byte in data:
-        if byte > 127:
-            yield byte ^ 127
-        else:
-            yield byte
+    if byte > 127:
+        return byte ^ 127
+    else:
+        return byte
 
 
 def pack_file(filename: str, output_file: BinaryIO) -> None:
@@ -25,7 +24,7 @@ def pack_file(filename: str, output_file: BinaryIO) -> None:
     # calculate the position of the end of the file, including the
     # 3 bytes for this stop number.
     oSLStop = (output_file.tell() + len(data) + 2).to_bytes(3, 'big')
-    encoded_file = oSLStop + bytes(invert_high_bytes(data))
+    encoded_file = oSLStop + bytes(invert_high_byte(byte) for byte in data)
 
     output_file.write(encoded_file)
 
