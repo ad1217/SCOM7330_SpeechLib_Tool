@@ -5,6 +5,9 @@ import sys
 from datetime import datetime
 from typing import ByteString, Dict, Optional
 
+MAX_AUDIO_LENGTH = 12.0
+AUDIO_SAMPLE_RATE = 8000  # 8kHz
+
 
 def arbitrary_round(x: int, base: int) -> int:
     return base * round(x / base)
@@ -99,6 +102,16 @@ def generate_CustomAudioLib(input_dir: Path, output_filepath: Path) -> None:
             f.write(bytes(pack_file(word_file, f.tell())))
 
         firstFree = f.tell()
+
+        # calculate minutes of audio and compare with max
+        # TODO: this includes the file end pointers, which it probably shouldn't.
+        audio_length = (firstFree - (0x200 + index_size)) / (AUDIO_SAMPLE_RATE * 60)
+        if audio_length > MAX_AUDIO_LENGTH:
+            raise Exception(
+                f"You have {audio_length:.2f} minutes of custom audio "
+                f"but the maximum is {MAX_AUDIO_LENGTH} minutes.\n"
+                "Please remove or shorten some custom words")
+
         f.seek(0)
         f.write(bytes(make_header(firstFree)))
         f.write(bytes(make_imageHeader(index_size, max_word, firstFree)))
