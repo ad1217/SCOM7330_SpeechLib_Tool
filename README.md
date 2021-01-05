@@ -20,6 +20,28 @@ of `0x00`, for unclear reasons.
 <!-- (TODO: finish description) -->
 
 
+## Audio Files
+
+The input/output audio files are in the format specified in the SCOM manual:
+
+- 8000 Hertz sampling rate
+- Single channel (mono) audio
+- μ-law encoding
+- Raw headerless file
+
+You can convert wav files (for example) to this format with `sox`:
+
+```sh
+sox --type wav <input file>.wav --type ul --rate 8k <output file>.raw
+```
+
+or from this format to wav:
+
+```sh
+sox --type ul --rate 8k --channels 1 <input file>.raw --type wav <output file>.wav
+```
+
+
 ## Disclaimer
 
 I am not affiliated with S-COM in any way. I make no guarantees of the
