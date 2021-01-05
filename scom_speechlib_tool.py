@@ -80,19 +80,19 @@ def make_imageHeader(index_size: int, max_word: int, firstFree: int) -> ByteStri
 
 
 def generate_CustomAudioLib(input_dir: Path, output_filepath: Path) -> None:
+    word_files = sorted(
+        f for f in input_dir.iterdir()
+        if f.stem.isdigit() and f.suffix == '.raw'
+        and int(f.stem) >= 3000 and int(f.stem) < 5000)
+    max_word = max(int(word_file.stem) for word_file in word_files)
+
+    # each element in the index is 4 bytes (but only uses 3)
+    # total size is rounded up to nearest 0x100
+    index_size = arbitrary_round(max_word * 4, 0x100)
+    print(f"Maximum word: {max_word} (0x{max_word:X}), "
+          f"Index Size: {index_size}, (0x{index_size:X})")
+
     with open(output_filepath, 'wb') as f:
-        word_files = sorted(
-            f for f in input_dir.iterdir()
-            if f.stem.isdigit() and f.suffix == '.raw'
-            and int(f.stem) >= 3000 and int(f.stem) < 5000)
-        max_word = max(int(word_file.stem) for word_file in word_files)
-
-        # each element in the index is 4 bytes (but only uses 3)
-        # total size is rounded up to nearest 0x100
-        index_size = arbitrary_round(max_word * 4, 0x100)
-        print(f"Maximum word: {max_word} (0x{max_word:X}), "
-              f"Index Size: {index_size}, (0x{index_size:X})")
-
         f.seek(0x200 + index_size)
         word_offsets = {}
         for word_file in word_files:
