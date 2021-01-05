@@ -45,16 +45,16 @@ def assign_pos(header: bytearray, pos: int, content: ByteString) -> None:
     header[pos:pos + len(content)] = content
 
 
-def make_header(firstFree: int, timestamp: Optional[str] = None,
+def make_header(firstFree: int, timestamp: Optional[bytes] = None,
                 version: str = "1.0.0", mode: int = 3) -> ByteString:
     if timestamp is None:
         now = datetime.now()
-        timestamp = now.strftime(TIMESTAMP_FORMAT)
+        timestamp = now.strftime(TIMESTAMP_FORMAT).encode('ascii')
     header = bytearray(b'\xff' * 0x100)
     assign_pos(header, 0x00, b"SCOM\x00")  # static string
     assign_pos(header, 0x05, b"SCOM Cust ALib")  # static string
     assign_pos(header, 0x15, b"1.0.0")   # version, static in source
-    assign_pos(header, 0x21, timestamp.encode('ascii'))  # timestamp
+    assign_pos(header, 0x21, timestamp)  # timestamp
     header[0x38] = 3  # 3 in normal mode, 2 in extended arguments mode
     # TODO: why is this -0x100? seems to be ignoring this header?
     assign_pos(header, 0x39, (firstFree - 0x100).to_bytes(3, "big"))
