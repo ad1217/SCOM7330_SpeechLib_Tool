@@ -1,12 +1,16 @@
-# SCOM 7330 Custom Speech Library Tool
+# SCOM 7330 Speech Library Tool
 
-This is a tool to generate Custom Audio Libraries
-(`CustomAudioLib.bin`) for the SCOM 7330 repeater, reverse engineered
+This is a tool to manipulate Audio Libraries (such as
+`CustomAudioLib.bin`) for the SCOM 7330 repeater, reverse engineered
 from the provided `BuildSpeechLib.exe`.
 
-## `CustomAudioLib.bin` Format
+The official tool, as well as default audio libraries, manuals,
+firmware, etc. can be found at
+http://www.scomcontrollers.com/7330firmware .
 
-The `CustomAudioLib.bin` file is composed of 4 sections:
+## Speech Library Format
+
+The speech library file is composed of 4 sections:
 
 - header (`0x100` bytes)
 - image header (`0x100` bytes)
