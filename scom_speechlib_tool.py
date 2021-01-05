@@ -3,7 +3,7 @@
 from pathlib import Path
 import sys
 from datetime import datetime
-from typing import BinaryIO, ByteString, Dict, Optional
+from typing import ByteString, Dict, Optional
 
 
 def arbitrary_round(x: int, base: int) -> int:
@@ -18,15 +18,13 @@ def invert_high_byte(byte: int) -> int:
         return byte
 
 
-def pack_file(filepath: Path, output_file: BinaryIO) -> None:
+def pack_file(filepath: Path, offset: int) -> ByteString:
     with open(filepath, 'rb') as input_file:
         data = input_file.read()
     # calculate the position of the end of the file, including the
     # 3 bytes for this stop number.
-    oSLStop = (output_file.tell() + len(data) + 2).to_bytes(3, 'big')
-    encoded_file = oSLStop + bytes(invert_high_byte(byte) for byte in data)
-
-    output_file.write(encoded_file)
+    oSLStop = (offset + len(data) + 2).to_bytes(3, 'big')
+    return oSLStop + bytes(invert_high_byte(byte) for byte in data)
 
 
 def make_index(index_size: int, word_offsets: Dict[int, int]) -> ByteString:
@@ -95,7 +93,7 @@ def generate_CustomAudioLib(input_dir: Path, output_filepath: Path) -> None:
             word_code = int(word_file.stem)
             word_offsets[word_code] = f.tell()
             print(f"word code: {word_code} start: 0x{f.tell():06X}")
-            pack_file(word_file, f)
+            f.write(bytes(pack_file(word_file, f.tell())))
 
         firstFree = f.tell()
         f.seek(0)
