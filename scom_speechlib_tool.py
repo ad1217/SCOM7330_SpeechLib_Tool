@@ -3,13 +3,14 @@
 import os
 import sys
 from datetime import datetime
+from typing import BinaryIO, ByteString, Dict, Iterable, Optional
 
 
-def arbitrary_round(x, base):
+def arbitrary_round(x: int, base: int) -> int:
     return base * round(x / base)
 
 
-def invert_high_bytes(data):
+def invert_high_bytes(data: ByteString) -> Iterable[int]:
     # I have no idea why their code does this
     for byte in data:
         if byte > 127:
@@ -18,18 +19,18 @@ def invert_high_bytes(data):
             yield byte
 
 
-def pack_file(filename, out_f):
-    with open(filename, 'rb') as in_f:
-        data = in_f.read()
+def pack_file(filename: str, output_file: BinaryIO) -> None:
+    with open(filename, 'rb') as input_file:
+        data = input_file.read()
     # calculate the position of the end of the file, including the
     # 3 bytes for this stop number.
-    oSLStop = (out_f.tell() + len(data) + 2).to_bytes(3, 'big')
+    oSLStop = (output_file.tell() + len(data) + 2).to_bytes(3, 'big')
     encoded_file = oSLStop + bytes(invert_high_bytes(data))
 
-    out_f.write(encoded_file)
+    output_file.write(encoded_file)
 
 
-def make_index(index_size, word_offsets):
+def make_index(index_size: int, word_offsets: Dict[int, int]) -> ByteString:
     index = bytearray(b'\xff' * index_size)
     for word_code, offset in word_offsets.items():
         index[word_code * 4:word_code * 4 + 3] = offset.to_bytes(3, 'big')
@@ -37,11 +38,12 @@ def make_index(index_size, word_offsets):
     return index
 
 
-def assign_pos(header, pos, content):
+def assign_pos(header: bytearray, pos: int, content: ByteString) -> None:
     header[pos:pos + len(content)] = content
 
 
-def make_header(firstFree, timestamp=None, version="1.0.0", mode=3):
+def make_header(firstFree: int, timestamp: Optional[str] = None,
+                version: str = "1.0.0", mode: int = 3) -> ByteString:
     if timestamp is None:
         now = datetime.now()
         timestamp = now.strftime("%m/%y/%d %H:%M")
@@ -63,7 +65,7 @@ def make_header(firstFree, timestamp=None, version="1.0.0", mode=3):
     return header
 
 
-def make_imageHeader(index_size, max_word, firstFree):
+def make_imageHeader(index_size: int, max_word: int, firstFree: int) -> ByteString:
     header = bytearray(b'\xff' * 0x100)
 
     header[0:3] = [0, 2, 0]  # constants in source
@@ -77,7 +79,7 @@ def make_imageHeader(index_size, max_word, firstFree):
     return header
 
 
-def generate_CustomAudioLib(input_dir, output_filename):
+def generate_CustomAudioLib(input_dir: str, output_filename: str) -> None:
     with open(output_filename, 'wb') as f:
         word_files = sorted(os.listdir(input_dir))
         max_word = max(int(word_file.partition('.')[0]) for word_file in word_files)
@@ -97,9 +99,9 @@ def generate_CustomAudioLib(input_dir, output_filename):
 
         firstFree = f.tell()
         f.seek(0)
-        f.write(make_header(firstFree))
-        f.write(make_imageHeader(index_size, max_word, firstFree))
-        f.write(make_index(index_size, word_offsets))
+        f.write(bytes(make_header(firstFree)))
+        f.write(bytes(make_imageHeader(index_size, max_word, firstFree)))
+        f.write(bytes(make_index(index_size, word_offsets)))
 
 
 if __name__ == '__main__':
