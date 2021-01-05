@@ -5,6 +5,9 @@ import sys
 from datetime import datetime
 from typing import ByteString, Dict, Optional
 
+TIMESTAMP_FORMAT = "%m/%d/%y %H:%M"
+DATE_FORMAT = "%m/%d/%Y"
+
 MAX_AUDIO_LENGTH = 12.0
 AUDIO_SAMPLE_RATE = 8000  # 8kHz
 
@@ -46,7 +49,7 @@ def make_header(firstFree: int, timestamp: Optional[str] = None,
                 version: str = "1.0.0", mode: int = 3) -> ByteString:
     if timestamp is None:
         now = datetime.now()
-        timestamp = now.strftime("%m/%y/%d %H:%M")
+        timestamp = now.strftime(TIMESTAMP_FORMAT)
     header = bytearray(b'\xff' * 0x100)
     assign_pos(header, 0x00, b"SCOM\x00")  # static string
     assign_pos(header, 0x05, b"SCOM Cust ALib")  # static string
