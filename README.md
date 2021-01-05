@@ -10,6 +10,12 @@ http://www.scomcontrollers.com/7330firmware .
 
 ## Speech Library Format
 
+**Remember that this is reverse engineered (so not guaranteed to be
+accurate), and subject to change with firmware updates**
+
+**This was derived from firmware release V1.8b,
+  BuildSpeechLib.exe V1.2.0 (built 5/13/2018)**
+
 The speech library file is composed of 4 sections:
 
 - [Header](#header) (`0x100` bytes)
