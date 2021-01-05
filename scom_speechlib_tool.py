@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+from pathlib import Path
 import sys
 from datetime import datetime
 from typing import BinaryIO, ByteString, Dict, Optional
@@ -18,8 +18,8 @@ def invert_high_byte(byte: int) -> int:
         return byte
 
 
-def pack_file(filename: str, output_file: BinaryIO) -> None:
-    with open(filename, 'rb') as input_file:
+def pack_file(filepath: Path, output_file: BinaryIO) -> None:
+    with open(filepath, 'rb') as input_file:
         data = input_file.read()
     # calculate the position of the end of the file, including the
     # 3 bytes for this stop number.
@@ -78,23 +78,24 @@ def make_imageHeader(index_size: int, max_word: int, firstFree: int) -> ByteStri
     return header
 
 
-def generate_CustomAudioLib(input_dir: str, output_filename: str) -> None:
-    with open(output_filename, 'wb') as f:
-        word_files = sorted(os.listdir(input_dir))
-        max_word = max(int(word_file.partition('.')[0]) for word_file in word_files)
+def generate_CustomAudioLib(input_dir: Path, output_filepath: Path) -> None:
+    with open(output_filepath, 'wb') as f:
+        word_files = sorted(input_dir.iterdir())
+        max_word = max(int(word_file.stem) for word_file in word_files)
 
         # each element in the index is 4 bytes (but only uses 3)
         # total size is rounded up to nearest 0x100
         index_size = arbitrary_round(max_word * 4, 0x100)
-        print(f"Maximum word: {max_word} (0x{max_word:X}), index size: {index_size}, (0x{index_size:X})")
+        print(f"Maximum word: {max_word} (0x{max_word:X}), "
+              f"Index Size: {index_size}, (0x{index_size:X})")
 
         f.seek(0x200 + index_size)
         word_offsets = {}
         for word_file in word_files:
-            word_code = int(word_file.partition('.')[0])
+            word_code = int(word_file.stem)
             word_offsets[word_code] = f.tell()
             print(f"word code: {word_code} start: 0x{f.tell():06X}")
-            pack_file(input_dir + '/' + word_file, f)
+            pack_file(word_file, f)
 
         firstFree = f.tell()
         f.seek(0)
@@ -104,11 +105,11 @@ def generate_CustomAudioLib(input_dir: str, output_filename: str) -> None:
 
 
 if __name__ == '__main__':
-    input_dir = './CustomAudioFiles'
-    output_file = 'CustomAudioLib.bin'
+    input_dir = Path('CustomAudioFiles')
+    output_file = Path('CustomAudioLib.bin')
 
     if len(sys.argv) > 1:
-        input_dir = sys.argv[1]
+        input_dir = Path(sys.argv[1])
     if len(sys.argv) > 2:
-        output_file = sys.argv[2]
+        output_file = Path(sys.argv[2])
     generate_CustomAudioLib(input_dir, output_file)
