@@ -1,89 +1,33 @@
 #!/usr/bin/env python3
 
+import argparse
 from pathlib import Path
-import sys
-from datetime import datetime
-from typing import ByteString, Dict, Optional
 
-TIMESTAMP_FORMAT = "%m/%d/%y %H:%M"
-DATE_FORMAT = "%m/%d/%Y"
-
-MAX_AUDIO_LENGTH = 12.0
-AUDIO_SAMPLE_RATE = 8000  # 8kHz
+import scomspeech
 
 
-def arbitrary_round(x: int, base: int) -> int:
-    return base * round(x / base)
+def parse_CustomAudioLib(input_file: Path, output_dir: Path) -> None:
+    with open(input_file, 'rb') as f:
+        data = f.read()
+
+    orig_header = data[0:0x100]
+    header = scomspeech.parse_header(orig_header)
+    print("Header:", header)
+
+    orig_imageHeader = data[0x100:0x200]
+    imageHeader = scomspeech.parse_imageHeader(orig_imageHeader)
+    print("Image Header:", imageHeader)
+
+    orig_index = data[0x200:0x200 + imageHeader["index_size"]]
+    index = scomspeech.parse_index(orig_index)
+    print("Word codes:", list(index.keys()))
+
+    for word_code, offset in index.items():
+        with open(output_dir / f"{word_code}.raw", 'wb') as f:
+            f.write(scomspeech.extract_audio_data(data, offset))
 
 
-def invert_high_byte(byte: int) -> int:
-    # I have no idea why their code does this
-    if byte > 127:
-        return byte ^ 127
-    else:
-        return byte
-
-
-def pack_file(filepath: Path, offset: int) -> ByteString:
-    with open(filepath, 'rb') as input_file:
-        data = input_file.read()
-    # calculate the position of the end of the file, including the
-    # 3 bytes for this stop number.
-    oSLStop = (offset + len(data) + 2).to_bytes(3, 'big')
-    return oSLStop + bytes(invert_high_byte(byte) for byte in data)
-
-
-def make_index(index_size: int, word_offsets: Dict[int, int]) -> ByteString:
-    index = bytearray(b'\xff' * index_size)
-    for word_code, offset in word_offsets.items():
-        index[word_code * 4:word_code * 4 + 3] = offset.to_bytes(3, 'big')
-
-    return index
-
-
-def assign_pos(header: bytearray, pos: int, content: ByteString) -> None:
-    header[pos:pos + len(content)] = content
-
-
-def make_header(firstFree: int, name: bytes = b"SCOM Cust ALib",
-                timestamp: Optional[bytes] = None,
-                version: str = "1.0.0", mode: int = 3) -> ByteString:
-    if timestamp is None:
-        now = datetime.now()
-        timestamp = now.strftime(TIMESTAMP_FORMAT).encode('ascii')
-    header = bytearray(b'\xff' * 0x100)
-    assign_pos(header, 0x00, b"SCOM\x00")  # static string
-    assign_pos(header, 0x05, name)
-    assign_pos(header, 0x15, b"1.0.0")   # version, static in source
-    assign_pos(header, 0x21, timestamp)  # timestamp
-    header[0x38] = 3  # 3 in normal mode, 2 in extended arguments mode
-    # TODO: why is this -0x100? seems to be ignoring this header?
-    assign_pos(header, 0x39, (firstFree - 0x100).to_bytes(3, "big"))
-    # there were arguments to the original function, but the function
-    # was passed literal zeros...
-    assign_pos(header, 0x3c, b'\x00\x00\x00\x00')
-
-    # sanity check
-    assert len(header) == 0x100
-
-    return header
-
-
-def make_imageHeader(index_size: int, max_word: int, firstFree: int) -> ByteString:
-    header = bytearray(b'\xff' * 0x100)
-
-    header[0:3] = [0, 2, 0]  # constants in source
-    header[3] = index_size.to_bytes(3, "big")[1]
-    header[4:6] = (max_word + 1).to_bytes(3, "big")[1:3]  # TODO: why is this +1?
-    header[6:9] = firstFree.to_bytes(3, "big")
-
-    # sanity check
-    assert len(header) == 0x100
-
-    return header
-
-
-def generate_CustomAudioLib(input_dir: Path, output_filepath: Path) -> None:
+def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
     word_files = sorted(
         f for f in input_dir.iterdir()
         if f.stem.isdigit() and f.suffix == '.raw'
@@ -92,42 +36,64 @@ def generate_CustomAudioLib(input_dir: Path, output_filepath: Path) -> None:
 
     # each element in the index is 4 bytes (but only uses 3)
     # total size is rounded up to nearest 0x100
-    index_size = arbitrary_round(max_word * 4, 0x100)
+    index_size = scomspeech.arbitrary_round(max_word * 4, 0x100)
     print(f"Maximum word: {max_word} (0x{max_word:X}), "
           f"Index Size: {index_size}, (0x{index_size:X})")
 
-    with open(output_filepath, 'wb') as f:
-        f.seek(0x200 + index_size)
-        word_offsets = {}
-        for word_file in word_files:
-            word_code = int(word_file.stem)
-            word_offsets[word_code] = f.tell()
-            print(f"word code: {word_code} start: 0x{f.tell():06X}")
-            f.write(bytes(pack_file(word_file, f.tell())))
+    word_offsets, word_data = scomspeech.pack_word_files(word_files, 0x200 + index_size)
 
-        firstFree = f.tell()
+    firstFree = 0x200 + index_size + len(word_data)
 
-        # calculate minutes of audio and compare with max
-        # TODO: this includes the file end pointers, which it probably shouldn't.
-        audio_length = (firstFree - (0x200 + index_size)) / (AUDIO_SAMPLE_RATE * 60)
-        if audio_length > MAX_AUDIO_LENGTH:
-            raise Exception(
-                f"You have {audio_length:.2f} minutes of custom audio "
-                f"but the maximum is {MAX_AUDIO_LENGTH} minutes.\n"
-                "Please remove or shorten some custom words")
+    scomspeech.check_audio_length((firstFree - (0x200 + index_size)))
 
-        f.seek(0)
-        f.write(bytes(make_header(firstFree)))
-        f.write(bytes(make_imageHeader(index_size, max_word, firstFree)))
-        f.write(bytes(make_index(index_size, word_offsets)))
+    with open(output_file, 'wb') as f:
+        f.write(bytes(scomspeech.make_header(firstFree)))
+        f.write(bytes(scomspeech.make_imageHeader(index_size, max_word, firstFree)))
+        f.write(bytes(scomspeech.make_index(index_size, word_offsets)))
+        f.write(bytes(word_data))
 
 
 if __name__ == '__main__':
-    input_dir = Path('CustomAudioFiles')
-    output_file = Path('CustomAudioLib.bin')
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    subparsers = parser.add_subparsers(title="Subcommands",
+                                       dest='subcommand',
+                                       required=True)
 
-    if len(sys.argv) > 1:
-        input_dir = Path(sys.argv[1])
-    if len(sys.argv) > 2:
-        output_file = Path(sys.argv[2])
-    generate_CustomAudioLib(input_dir, output_file)
+    parser_create = subparsers.add_parser(
+        'create',
+        help="Pack audio into a audio library",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser_create.add_argument('input_dir',
+                               type=Path,
+                               nargs='?',
+                               default='CustomAudioFiles',
+                               help="A directory with raw audio files to pack")
+    parser_create.add_argument('output_file',
+                               type=Path,
+                               nargs='?',
+                               default='CustomAudioLib.bin',
+                               help="The output audio library file")
+
+    parser_extract = subparsers.add_parser(
+        'extract',
+        help="Extract audio data from a speech lib",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser_extract.add_argument('input_file',
+                                type=Path,
+                                nargs='?',
+                                default='CustomAudioLib.bin',
+                                help="The input audio library file")
+    parser_extract.add_argument('output_dir',
+                                type=Path,
+                                nargs='?',
+                                default='CustomAudioFiles',
+                                help="A directory to which raw audio files will be written")
+
+    args = parser.parse_args()
+
+    if args.subcommand == 'create':
+        generate_CustomAudioLib(args.input_dir, args.output_file)
+
+    elif args.subcommand == 'extract':
+        parse_CustomAudioLib(args.input_file, args.output_dir)
