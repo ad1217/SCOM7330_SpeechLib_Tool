@@ -1,3 +1,5 @@
+import logging
+
 from datetime import datetime
 from pathlib import Path
 from typing import ByteString, Dict, Iterable, Optional, Tuple, TypedDict
@@ -149,7 +151,7 @@ def pack_word_files(word_files: Iterable[Path],
         word_code = int(word_file.stem)
         offset = base_offset + len(out_data)
         word_offsets[word_code] = offset
-        print(f"word code: {word_code} start: 0x{offset:06X}")
+        logging.info(f"word code: {word_code} start: 0x{offset:06X}")
 
         with open(word_file, 'rb') as input_file:
             data = input_file.read()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import logging
 from pathlib import Path
 
 import scomspeech
@@ -71,8 +72,8 @@ def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
     # each element in the index is 4 bytes (but only uses 3)
     # total size is rounded up to nearest 0x100
     index_size = scomspeech.arbitrary_round(max_word * 4, 0x100)
-    print(f"Maximum word: {max_word} (0x{max_word:X}), "
-          f"Index Size: {index_size}, (0x{index_size:X})")
+    logging.info(f"Maximum word: {max_word} (0x{max_word:X}), "
+                 f"Index Size: {index_size}, (0x{index_size:X})")
 
     word_offsets, word_data = scomspeech.pack_word_files(word_files, 0x200 + index_size)
 
@@ -90,8 +91,14 @@ def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("-l", "--log", dest="logLevel",
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        default="WARNING",
+                        help="Set the logging level")
+
     subparsers = parser.add_subparsers(title="Subcommands",
                                        dest='subcommand',
+                                       description='Use -h on a subcommand for more info',
                                        required=True)
 
     parser_create = subparsers.add_parser(
@@ -135,6 +142,11 @@ if __name__ == '__main__':
                                 help="The input audio library file")
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        format="{levelname}: {message}",
+        style='{',
+        level=logging.getLevelName(args.logLevel))
 
     if args.subcommand == 'create':
         generate_CustomAudioLib(args.input_dir, args.output_file)
