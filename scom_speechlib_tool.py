@@ -12,33 +12,18 @@ def info(input_file: Path) -> None:
         data = f.read()
 
     orig_header = data[0:0x100]
-    header = scomspeech.parse_header(orig_header)
-    print("Header:",
-          f"  preamble: {header['preamble']!s}",
-          f"  name: {header['name']!s}",
-          f"  version: {header['version']!s}",
-          f"  timestamp: {header['timestamp']!s}",
-          f"  mode: {header['mode']}",
-          f"  firstFree: 0x{header['firstFree']:X}",
-          f"  zeros: {header['zeros']!s}",
-          "",
-          sep="\n")
+    header = scomspeech.Header.from_bytes(orig_header)
+    print(header)
 
     orig_imageHeader = data[0x100:0x200]
-    imageHeader = scomspeech.parse_imageHeader(orig_imageHeader)
-    print("Image Header:",
-          f"  preamble: {imageHeader['preamble']!s}",
-          f"  index_size: 0x{imageHeader['index_size']:X} ({imageHeader['index_size']//4} words)",
-          f"  max_word: {imageHeader['max_word']}",
-          f"  firstFree: 0x{imageHeader['firstFree']:X} ({imageHeader['firstFree']} bytes)",
-          "",
-          sep="\n")
+    imageHeader = scomspeech.ImageHeader.from_bytes(orig_imageHeader)
+    print(imageHeader)
 
-    orig_index = data[0x200:0x200 + imageHeader["index_size"]]
-    index = scomspeech.parse_index(orig_index)
+    orig_index = data[0x200:0x200 + imageHeader.index_size]
+    index = scomspeech.Index.from_bytes(orig_index)
 
     print("Index:")
-    for word_code, offset in index.items():
+    for word_code, offset in index.word_offsets.items():
         stop = int.from_bytes(data[offset:offset + 3], "big")
         length = stop - offset - 3
         print(f"  word code: {word_code:<5} "
@@ -52,14 +37,14 @@ def parse_CustomAudioLib(input_file: Path, output_dir: Path) -> None:
         data = f.read()
 
     orig_imageHeader = data[0x100:0x200]
-    imageHeader = scomspeech.parse_imageHeader(orig_imageHeader)
+    imageHeader = scomspeech.ImageHeader.from_bytes(orig_imageHeader)
 
-    orig_index = data[0x200:0x200 + imageHeader["index_size"]]
-    index = scomspeech.parse_index(orig_index)
+    orig_index = data[0x200:0x200 + imageHeader.index_size]
+    index = scomspeech.Index.from_bytes(orig_index)
 
-    for word_code, offset in index.items():
+    for word_code, offset in index.word_offsets.items():
         with open(output_dir / f"{word_code}.raw", 'wb') as f:
-            f.write(scomspeech.extract_audio_data(data, offset))
+            f.write(scomspeech.AudioDataEntry.from_audio_data(data, offset).data)
 
 
 def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
@@ -67,25 +52,20 @@ def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
         f for f in input_dir.iterdir()
         if f.stem.isdigit() and f.suffix == '.raw'
         and int(f.stem) >= 3000 and int(f.stem) < 5000)
-    max_word = max(int(word_file.stem) for word_file in word_files)
 
-    # each element in the index is 4 bytes (but only uses 3)
-    # total size is rounded up to nearest 0x100
-    index_size = scomspeech.arbitrary_round(max_word * 4, 0x100)
-    logging.info(f"Maximum word: {max_word} (0x{max_word:X}), "
-                 f"Index Size: {index_size}, (0x{index_size:X})")
+    word_data = scomspeech.AudioData.from_files(word_files)
+    word_data.check_audio_length()
 
-    word_offsets, word_data = scomspeech.pack_word_files(word_files, 0x200 + index_size)
+    index = scomspeech.Index.from_AudioData(word_data)
+    word_data_bytes = word_data.to_bytes(index)
 
-    firstFree = 0x200 + index_size + len(word_data)
-
-    scomspeech.check_audio_length((firstFree - (0x200 + index_size)))
+    firstFree = 0x200 + index.index_size + len(word_data_bytes)
 
     with open(output_file, 'wb') as f:
-        f.write(bytes(scomspeech.make_header(firstFree)))
-        f.write(bytes(scomspeech.make_imageHeader(index_size, max_word, firstFree)))
-        f.write(bytes(scomspeech.make_index(index_size, word_offsets)))
-        f.write(bytes(word_data))
+        f.write(scomspeech.Header(firstFree).to_bytes())
+        f.write(scomspeech.ImageHeader(index.index_size, index.max_word, firstFree).to_bytes())
+        f.write(index.to_bytes())
+        f.write(word_data_bytes)
 
 
 if __name__ == '__main__':
