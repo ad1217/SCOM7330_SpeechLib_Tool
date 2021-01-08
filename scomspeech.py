@@ -58,7 +58,8 @@ class Header:
             version=header[0x15:].partition(b"\xff")[0],
             timestamp_raw=header[0x21:].partition(b"\xff")[0],
             mode=header[0x38],
-            firstFree=int.from_bytes(header[0x39:0x39 + 3], "big"),
+            # TODO: this is -0x100, but should I adjust it here?
+            firstFree=int.from_bytes(header[0x39:0x39 + 3], "big") + 0x100,
             # these were literal 0s in the source...
             zeros=header[0x3c:0x3c + 4],
         )
@@ -111,7 +112,7 @@ class ImageHeader:
             preamble=header[0:3],
             # only the middle byte is stored
             index_size=header[3] << 8,
-            max_word=int.from_bytes(header[4:6], "big"),
+            max_word=int.from_bytes(header[4:6], "big") - 1,
             firstFree=int.from_bytes(header[6:9], "big"),
         )
 
