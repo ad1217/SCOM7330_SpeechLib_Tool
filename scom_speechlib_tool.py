@@ -44,7 +44,7 @@ def parse_CustomAudioLib(input_file: Path, output_dir: Path) -> None:
 
     for word_code, offset in index.word_offsets.items():
         with open(output_dir / f"{word_code}.raw", 'wb') as f:
-            f.write(scomspeech.AudioDataEntry.from_audio_data(data, offset).data)
+            f.write(scomspeech.AudioDataEntry.from_bytes(data, offset).data)
 
 
 def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:

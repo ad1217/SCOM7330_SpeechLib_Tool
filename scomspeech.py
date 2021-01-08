@@ -200,13 +200,13 @@ class AudioDataEntry:
             return byte
 
     @classmethod
-    def from_audio_data(cls, audio_data: ByteString, offset: int) -> AudioDataEntry:
+    def from_bytes(cls, audio_data: ByteString, offset: int) -> AudioDataEntry:
         stop = int.from_bytes(audio_data[offset:offset + 3], "big")
 
         return cls(bytes(cls._invert_high_byte(byte)
                          for byte in audio_data[offset + 3:stop + 1]))
 
-    def to_audio_data(self, offset: int) -> bytes:
+    def to_bytes(self, offset: int) -> bytes:
         # calculate the position of the end of the file, including the
         # 3 bytes for the stop number.
         stop = (offset + len(self.data) + 2)
@@ -236,7 +236,7 @@ class AudioData:
     def to_bytes(self, index: Index, base_offset: int = 0x200) -> bytes:
         out_data = bytes()
         for word_code, offset in index.word_offsets.items():
-            out_data += self.entries[word_code].to_audio_data(offset)
+            out_data += self.entries[word_code].to_bytes(offset)
 
         return out_data
 
