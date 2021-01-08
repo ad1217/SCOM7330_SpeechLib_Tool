@@ -207,6 +207,9 @@ class AudioDataEntry:
     def from_bytes(cls, audio_data: ByteString, offset: int) -> AudioDataEntry:
         stop = int.from_bytes(audio_data[offset:offset + 3], "big")
 
+        if stop > len(audio_data):
+            raise IndexError("Stop address is greater than the length of the data!")
+
         return cls(bytes(cls._invert_high_byte(byte)
                          for byte in audio_data[offset + 3:stop + 1]))
 
