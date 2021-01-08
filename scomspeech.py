@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -150,8 +151,8 @@ class Index:
                      f"Index Size: {self.index_size}, (0x{self.index_size:X})")
 
     @staticmethod
-    def arbitrary_round(x: int, base: int) -> int:
-        return base * round(x / base)
+    def _arbitrary_round_up(x: int, base: int) -> int:
+        return math.ceil(x / base) * base
 
     # TODO: not sure I like the coupling here, but couldn't think of a
     # cleaner way to do this
@@ -160,7 +161,7 @@ class Index:
         # each element in the index is 4 bytes (but only uses 3)
         # total size is rounded up to nearest 0x100
         max_word = max(audioData.entries.keys())
-        index_size = cls.arbitrary_round(max_word * 4, 0x100)
+        index_size = cls._arbitrary_round_up(max_word * 4, 0x100)
 
         word_offsets = {}
         offset = base_offset + index_size
