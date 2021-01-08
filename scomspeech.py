@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import ByteString, Dict, Iterable, Optional
 
 
+class AudioLengthException(Exception):
+    pass
+
+
 @dataclass
 class Header:
     TIMESTAMP_FORMAT = "%m/%d/%y %H:%M"
@@ -245,7 +249,7 @@ class AudioData:
         data_length = sum(len(entry.data) for entry in self.entries.values())
         audio_length = data_length / (self.AUDIO_SAMPLE_RATE * 60)
         if audio_length > self.MAX_AUDIO_LENGTH:
-            raise Exception(
-                f"You have {audio_length:.2f} minutes of custom audio "
+            raise AudioLengthException(
+                f"You have {audio_length:.2f} ({data_length} bytes) minutes of custom audio "
                 f"but the maximum is {self.MAX_AUDIO_LENGTH} minutes.\n"
                 "Please remove or shorten some custom words")
