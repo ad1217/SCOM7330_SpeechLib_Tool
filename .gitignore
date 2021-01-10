@@ -1,4 +1,6 @@
 __pycache__/
+/htmlcov
+/.coverage
 
 /CustomAudioLib.bin
 /CustomAudioFiles/
