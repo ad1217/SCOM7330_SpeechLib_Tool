@@ -92,7 +92,7 @@ class Header:
             f"  preamble: {self.preamble!s}",
             f"  name: {self.name!s}",
             f"  version: {self.version!s}",
-            f"  timestamp: {self.timestamp!s}",
+            f"  timestamp: {self.timestamp!s}, raw: {self.timestamp_raw!s}",
             f"  mode: {self.mode}",
             f"  firstFree: 0x{self.firstFree:X}",
             f"  zeros: {self.zeros!s}"
