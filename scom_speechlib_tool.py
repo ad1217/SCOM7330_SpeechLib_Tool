@@ -11,61 +11,37 @@ def info(input_file: Path) -> None:
     with open(input_file, 'rb') as f:
         data = f.read()
 
-    orig_header = data[0:0x100]
-    header = scomspeech.Header.from_bytes(orig_header)
-    print(header)
+    speechLib = scomspeech.SpeechLib.from_bytes(data)
 
-    orig_imageHeader = data[0x100:0x200]
-    imageHeader = scomspeech.ImageHeader.from_bytes(orig_imageHeader)
-    print(imageHeader)
+    print(speechLib.header)
+    print(speechLib.imageHeader)
 
-    orig_index = data[0x200:0x200 + imageHeader.index_size]
-    index = scomspeech.Index.from_bytes(orig_index)
-
-    print("Index:")
-    for word_code, offset in index.word_offsets.items():
+    print("Audio Data:")
+    for word_code, offset in speechLib.index.word_offsets.items():
+        entry = speechLib.audioData.entries[word_code]
         stop = int.from_bytes(data[offset:offset + 3], "big")
-        length = stop - offset - 3
+        length = len(entry.data)
         print(f"  word code: {word_code:<5} "
               f"start: 0x{offset:<6X} "
               f"end: 0x{stop:<6X} "
               f"length: 0x{length:<6X} ({length} bytes)")
 
 
-def parse_CustomAudioLib(input_file: Path, output_dir: Path) -> None:
-    with open(input_file, 'rb') as f:
-        data = f.read()
+def extract_audio(input_file: Path, output_dir: Path) -> None:
+    speechLib = scomspeech.SpeechLib.from_file(input_file)
 
-    orig_imageHeader = data[0x100:0x200]
-    imageHeader = scomspeech.ImageHeader.from_bytes(orig_imageHeader)
+    output_dir.mkdir(exist_ok=True)
 
-    orig_index = data[0x200:0x200 + imageHeader.index_size]
-    index = scomspeech.Index.from_bytes(orig_index)
-
-    for word_code, offset in index.word_offsets.items():
+    for word_code, entry in speechLib.audioData.entries.items():
         with open(output_dir / f"{word_code}.raw", 'wb') as f:
-            f.write(scomspeech.AudioDataEntry.from_bytes(data, offset).data)
+            f.write(entry.data)
 
 
 def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
-    word_files = sorted(
-        f for f in input_dir.iterdir()
-        if f.stem.isdigit() and f.suffix == '.raw'
-        and int(f.stem) >= 3000 and int(f.stem) < 5000)
-
-    word_data = scomspeech.AudioData.from_files(word_files)
-    word_data.check_audio_length()
-
-    index = scomspeech.Index.from_AudioData(word_data)
-    word_data_bytes = word_data.to_bytes(index)
-
-    firstFree = 0x200 + index.index_size + len(word_data_bytes)
+    speechLib = scomspeech.SpeechLib.from_directory(input_dir)
 
     with open(output_file, 'wb') as f:
-        f.write(scomspeech.Header(firstFree).to_bytes())
-        f.write(scomspeech.ImageHeader(index.index_size, index.max_word, firstFree).to_bytes())
-        f.write(index.to_bytes())
-        f.write(word_data_bytes)
+        f.write(speechLib.to_bytes())
 
 
 if __name__ == '__main__':
@@ -133,4 +109,4 @@ if __name__ == '__main__':
     elif args.subcommand == 'info':
         info(args.input_file)
     elif args.subcommand == 'extract':
-        parse_CustomAudioLib(args.input_file, args.output_dir)
+        extract_audio(args.input_file, args.output_dir)

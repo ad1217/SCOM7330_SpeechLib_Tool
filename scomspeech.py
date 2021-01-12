@@ -278,3 +278,51 @@ class AudioData:
                 f"You have {audio_length:.2f} ({self.data_length} bytes) minutes "
                 f"of custom audio but the maximum is {self.MAX_AUDIO_LENGTH} minutes.\n"
                 "Please remove or shorten some custom words")
+
+
+@dataclass
+class SpeechLib:
+    header: Header
+    imageHeader: ImageHeader
+    index: Index
+    audioData: AudioData
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> SpeechLib:
+        header = Header.from_bytes(data[0:0x100])
+        imageHeader = ImageHeader.from_bytes(data[0x100:0x200])
+        index = Index.from_bytes(data[0x200:0x200 + imageHeader.index_size])
+
+        audioData = AudioData.from_bytes(data, index)
+
+        return cls(header, imageHeader, index, audioData)
+
+    @classmethod
+    def from_file(cls, input_file: Path) -> SpeechLib:
+        with open(input_file, 'rb') as f:
+            return cls.from_bytes(f.read())
+
+    @classmethod
+    def from_directory(cls, input_directory: Path) -> SpeechLib:
+        word_files = sorted(
+            f for f in input_directory.iterdir()
+            if f.stem.isdigit() and f.suffix == '.raw'
+            and int(f.stem) >= 3000 and int(f.stem) < 5000)
+
+        word_data = AudioData.from_files(word_files)
+        index = Index.from_AudioData(word_data)
+
+        firstFree = 0x200 + index.index_size + word_data.full_length
+
+        return cls(
+            Header(firstFree),
+            ImageHeader(index.index_size, index.max_word, firstFree),
+            index,
+            word_data
+        )
+
+    def to_bytes(self) -> bytes:
+        return self.header.to_bytes() + \
+            self.imageHeader.to_bytes() + \
+            self.index.to_bytes() + \
+            self.audioData.to_bytes(self.index)
