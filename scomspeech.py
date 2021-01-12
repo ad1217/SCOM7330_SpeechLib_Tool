@@ -198,29 +198,33 @@ class AudioDataEntry:
     data: bytes
 
     @staticmethod
-    def _invert_high_byte(byte: int) -> int:
-        # I have no idea why their code does this
-        if byte > 127:
-            return byte ^ 127
-        else:
-            return byte
+    def _invert_high_bytes(data: ByteString) -> bytearray:
+        """Inverts the lower 7 bits of every byte with the highest bit set.
+           I have no idea why their code does this."""
+        dataarray = bytearray(data)
+
+        for index, byte in enumerate(dataarray):
+            dataarray[index] = byte ^ 127 if byte > 127 else byte
+
+        return dataarray
 
     @classmethod
-    def from_bytes(cls, audio_data: ByteString, offset: int) -> AudioDataEntry:
+    def from_bytes(cls, audio_data: bytes, offset: int) -> AudioDataEntry:
         stop = int.from_bytes(audio_data[offset:offset + 3], "big")
 
         if stop > len(audio_data):
             raise IndexError("Stop address is greater than the length of the data!")
 
-        return cls(bytes(cls._invert_high_byte(byte)
-                         for byte in audio_data[offset + 3:stop + 1]))
+        b = bytes(cls._invert_high_bytes(audio_data[offset + 3:stop + 1]))
+
+        return cls(b)
 
     def to_bytes(self, offset: int) -> bytes:
         # calculate the position of the end of the file, including the
         # 3 bytes for the stop number.
         stop = (offset + len(self.data) + 2)
 
-        inverted_bytes = bytes(self._invert_high_byte(byte) for byte in self.data)
+        inverted_bytes = bytes(self._invert_high_bytes(self.data))
         return stop.to_bytes(3, 'big') + inverted_bytes
 
 
