@@ -262,12 +262,19 @@ class AudioData:
 
         return out_data
 
+    @property
+    def data_length(self) -> int:
+        return sum(len(entry.data) for entry in self.entries.values())
+
+    @property
+    def full_length(self) -> int:
+        return sum(len(entry.data) + 3 for entry in self.entries.values())
+
     def check_audio_length(self) -> None:
         """Calculate minutes of audio and compare with max"""
-        data_length = sum(len(entry.data) for entry in self.entries.values())
-        audio_length = data_length / (self.AUDIO_SAMPLE_RATE * 60)
+        audio_length = self.data_length / (self.AUDIO_SAMPLE_RATE * 60)
         if audio_length > self.MAX_AUDIO_LENGTH:
             raise AudioLengthException(
-                f"You have {audio_length:.2f} ({data_length} bytes) minutes of custom audio "
-                f"but the maximum is {self.MAX_AUDIO_LENGTH} minutes.\n"
+                f"You have {audio_length:.2f} ({self.data_length} bytes) minutes "
+                f"of custom audio but the maximum is {self.MAX_AUDIO_LENGTH} minutes.\n"
                 "Please remove or shorten some custom words")
