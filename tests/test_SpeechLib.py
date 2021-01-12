@@ -1,7 +1,9 @@
 import json
 import unittest
+from datetime import datetime
 from hashlib import md5
 from pathlib import Path
+from typing import Dict
 
 from scomspeech import Header, ImageHeader, Index, SpeechLib
 
@@ -72,38 +74,54 @@ class TestSpeechLib_Read_SpLibEng(unittest.TestCase):
         self.assertEqual(sums, expected_sums)
 
 
-class TestSpeechLib_Read_DemoAudioLib(unittest.TestCase):
-    source_file = Path('./tests/data/DemoAudioLib.bin')
+class TestSpeechLib_DemoAudioLib(unittest.TestCase):
     source_url = "http://www.scomcontrollers.com/downloads/7330_V1.8b_191125.zip"
-    source_hash = '3828b3ddc9c6b5e9ca1df0d7638d4074'
 
-    speechLib: SpeechLib
+    file_source = Path('./tests/data/DemoAudioLib.bin')
+    file_source_hash = '3828b3ddc9c6b5e9ca1df0d7638d4074'
+
+    directory_source = Path('./tests/data/DemoAudioLib')
+    directory_source_files = ['4000.raw', '4001.raw', '4002.raw']
+
+    speechLibs: Dict[str, SpeechLib] = {}
 
     @classmethod
     def setUpClass(cls) -> None:
-        if not cls.source_file.is_file():
+        if not cls.file_source.is_file():
             raise unittest.SkipTest(
-                f"Missing {cls.source_file} from {cls.source_url}")
+                f"Missing {cls.file_source} from {cls.source_url}")
 
-        with open(cls.source_file, 'rb') as f:
+        with open(cls.file_source, 'rb') as f:
             data = f.read()
 
-        if md5(data).hexdigest() != cls.source_hash:
+        if md5(data).hexdigest() != cls.file_source_hash:
             raise unittest.SkipTest(
-                f"{cls.source_file} has wrong hash, "
+                f"{cls.file_source} has wrong hash, "
                 f"please re-download from {cls.source_url}")
 
-        cls.speechLib = SpeechLib.from_bytes(data)
+        cls.speechLibs["file"] = SpeechLib.from_bytes(data)
+
+        if not cls.directory_source.is_dir():
+            raise unittest.SkipTest(
+                f"Missing {cls.directory_source}, should contain "
+                f"{cls.directory_source_files} from {cls.source_url}")
+
+        cls.speechLibs["directory"] = SpeechLib.from_directory(cls.directory_source)
+        # TODO: from_directory should really just take a timestamp argument
+        cls.speechLibs["directory"].header.timestamp_raw = b'09/09/09 12:00'
+        cls.speechLibs["directory"].header.timestamp = datetime(2009, 9, 9, 12, 0)
 
     def test_headers(self) -> None:
-        self.assertEqual(self.speechLib.header,
-                         Header(firstFree=1104265,
-                                timestamp_raw=b'09/09/09 12:00'))
+        for name, speechLib in self.speechLibs.items():
+            with self.subTest(lib=name):
+                self.assertEqual(speechLib.header,
+                                 Header(firstFree=1104265,
+                                        timestamp_raw=b'09/09/09 12:00'))
 
-        self.assertEqual(self.speechLib.imageHeader,
-                         ImageHeader(index_size=0x3F00,
-                                     max_word=4002,
-                                     firstFree=1104265))
+                self.assertEqual(speechLib.imageHeader,
+                                 ImageHeader(index_size=0x3F00,
+                                             max_word=4002,
+                                             firstFree=1104265))
 
     def test_index(self) -> None:
         expected_offsets = {
@@ -112,7 +130,9 @@ class TestSpeechLib_Read_DemoAudioLib(unittest.TestCase):
             4002: 1080262
         }
 
-        self.assertEqual(self.speechLib.index, Index(0x3F00, expected_offsets))
+        for name, speechLib in self.speechLibs.items():
+            with self.subTest(lib=name):
+                self.assertEqual(speechLib.index, Index(0x3F00, expected_offsets))
 
     def test_contents(self) -> None:
         expected_sums = {
@@ -121,10 +141,21 @@ class TestSpeechLib_Read_DemoAudioLib(unittest.TestCase):
             4002: 'bb62511d46ffcf6d0e4d6a1e0798a928'
         }
 
-        sums = {word_code: md5(entry.data).hexdigest()
-                for word_code, entry in self.speechLib.audioData.entries.items()}
+        for name, speechLib in self.speechLibs.items():
+            with self.subTest(lib=name):
+                sums = {word_code: md5(entry.data).hexdigest()
+                        for word_code, entry in speechLib.audioData.entries.items()}
 
-        self.assertEqual(sums, expected_sums)
+                self.assertEqual(sums, expected_sums)
+
+    def test_file_directory_equal(self) -> None:
+        self.assertEqual(self.speechLibs["file"], self.speechLibs["directory"])
+
+    def test_to_bytes_equals_file(self) -> None:
+        with open(self.file_source, 'rb') as f:
+            data = f.read()
+
+        self.assertEqual(self.speechLibs["directory"].to_bytes(), data)
 
 
 if __name__ == '__main__':
