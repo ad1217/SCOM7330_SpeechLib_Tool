@@ -1,5 +1,7 @@
 # SCOM 7330 Speech Library Tool
 
+![Unit Tests](https://github.com/ad1217/SCOM7330_SpeechLib_Tool/workflows/Unit%20Tests/badge.svg)
+
 This is a tool to manipulate Audio Libraries (such as
 `CustomAudioLib.bin`) for the SCOM 7330 repeater, reverse engineered
 from the provided `BuildSpeechLib.exe`.

@@ -1,0 +1,44 @@
+name: Unit Tests
+
+on:
+  # Triggers the workflow on push events but only for the main branch
+  push:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+
+      - name: Cache test data
+        id: cache-test-data
+        uses: actions/cache@v2
+        with:
+          path: |
+            tests/data/DemoAudioLib.bin
+            tests/data/DemoAudioLib
+            tests/data/SpLibEng_1.3.bin
+          key: test-data
+
+      - name: Retrieve test data
+        if: steps.cache-test-data.outputs.cache-hit != 'true'
+        run: |
+          cd tests/data/
+          wget http://www.scomcontrollers.com/downloads/SpLibEng_1.3.bin
+          wget http://www.scomcontrollers.com/downloads/7330_V1.8b_191125.zip
+          unzip 7330_V1.8b_191125.zip DemoAudioLib.bin
+          mkdir DemoAudioLib
+          unzip 7330_V1.8b_191125.zip 4000.raw 4001.raw 4002.raw -d DemoAudioLib
+
+      - name: Run unit tests
+        run: python -m unittest -v
