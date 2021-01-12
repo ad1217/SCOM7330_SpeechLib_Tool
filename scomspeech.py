@@ -246,6 +246,15 @@ class AudioData:
 
         return cls(entries)
 
+    @classmethod
+    def from_bytes(cls, data: bytes, index: Index) -> AudioData:
+        entries = {}
+
+        for word_code, offset in index.word_offsets.items():
+            entries[word_code] = AudioDataEntry.from_bytes(data, offset)
+
+        return cls(entries)
+
     def to_bytes(self, index: Index, base_offset: int = 0x200) -> bytes:
         out_data = bytes()
         for word_code, offset in index.word_offsets.items():

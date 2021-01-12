@@ -43,6 +43,21 @@ class TestAudioData(unittest.TestCase):
 
         self.assertEqual(audioData.to_bytes(index), b'12345678')
 
+    def test_from_bytes(self) -> None:
+        index = mock.Mock(word_offsets={
+            1: 0x100,
+            2: 0x200,
+        })
+
+        data = b'\xff' * 0x100 + b'\x00\x01\x061234'.ljust(0x100, b'\xff') + b'\x00\x02\x065678';
+
+        audioData = AudioData.from_bytes(data, index)
+
+        self.assertEqual(audioData, AudioData({
+            1: AudioDataEntry(b'1234'),
+            2: AudioDataEntry(b'5678'),
+        }))
+
     def test_from_files(self) -> None:
         # TODO
         pass
