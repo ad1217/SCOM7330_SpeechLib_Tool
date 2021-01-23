@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "scomspeech"
+version = "0.1.1"
+description = "A tool to manipulate Audio Libraries (ex CustomAudioLib.bin) for the SCOM 7330 repeater"
+authors = ["Adam Goldsmith <adam@adamgoldsmith.name>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/ad1217/SCOM7330_SpeechLib_Tool"
+repository = "https://github.com/ad1217/SCOM7330_SpeechLib_Tool"
+keywords = ["ham-radio", "hamradio", "scom", "scom-7330"]
+classifiers = [
+    "Environment :: Console",
+    "Topic :: Communications :: Ham Radio",
+    "Topic :: Utilities",
+    "Typing :: Typed"
+]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry_core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+scom_speechlib_tool = 'scomspeech.cli:main'

@@ -1,6 +1,8 @@
-__pycache__/
-/htmlcov
+/*.egg-info/
 /.coverage
+/dist/
+/htmlcov
+__pycache__/
 
 /CustomAudioLib.bin
 /CustomAudioFiles/

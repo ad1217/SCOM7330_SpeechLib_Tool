@@ -24,7 +24,7 @@ class TestHeaderTimestamp(unittest.TestCase):
 
     def test_timestamp_None(self) -> None:
         expected_now = datetime(2020, 6, 7, 8, 32)
-        with mock.patch('scomspeech.datetime') as mock_datetime:
+        with mock.patch('scomspeech.scomspeech.datetime') as mock_datetime:
             mock_datetime.now.return_value = expected_now
 
             header = Header(0)

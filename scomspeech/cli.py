@@ -44,7 +44,7 @@ def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
         f.write(speechLib.to_bytes())
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-l", "--log", dest="logLevel",
@@ -92,10 +92,10 @@ if __name__ == '__main__':
         help="Print some information about the contents of a speech lib",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser_info.add_argument('input_file',
-                                type=Path,
-                                nargs='?',
-                                default='CustomAudioLib.bin',
-                                help="The input audio library file")
+                             type=Path,
+                             nargs='?',
+                             default='CustomAudioLib.bin',
+                             help="The input audio library file")
 
     args = parser.parse_args()
 
@@ -110,3 +110,7 @@ if __name__ == '__main__':
         info(args.input_file)
     elif args.subcommand == 'extract':
         extract_audio(args.input_file, args.output_dir)
+
+
+if __name__ == '__main__':
+    main()
