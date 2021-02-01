@@ -17,13 +17,20 @@ class Header:
     TIMESTAMP_FORMAT = "%m/%d/%y %H:%M"
     DATE_FORMAT = "%m/%d/%Y"
 
+    FILE_TYPES = {
+        0: "Multi-section File",
+        1: "Configuration File",
+        2: "Speech Library",
+        3: "Custom Audio Library",
+    }
+
     firstFree: int
     preamble: bytes = b'SCOM\x00'  # static string
     name: bytes = b"SCOM Cust ALib"
     version: bytes = b"1.0.0"  # static in source
     timestamp: Optional[datetime] = None
     timestamp_raw: Optional[bytes] = None
-    mode: int = 3  # 3 in normal mode, 2 in extended arguments mode
+    file_type: int = 3
     # there were two arguments to the original function, but the
     # function was passed literal zeros...
     zeros: bytes = b'\x00\x00\x00\x00'
@@ -57,7 +64,7 @@ class Header:
             name=header[0x05:].partition(b"\xff")[0],
             version=header[0x15:].partition(b"\xff")[0],
             timestamp_raw=header[0x21:].partition(b"\xff")[0],
-            mode=header[0x38],
+            file_type=header[0x38],
             # TODO: this is -0x100, but should I adjust it here?
             firstFree=int.from_bytes(header[0x39:0x39 + 3], "big") + 0x100,
             # these were literal 0s in the source...
@@ -76,7 +83,7 @@ class Header:
         self._assign_pos(header, 0x05, self.name)
         self._assign_pos(header, 0x15, self.version)
         self._assign_pos(header, 0x21, self.timestamp_raw)
-        header[0x38] = self.mode
+        header[0x38] = self.file_type
         # TODO: why is this -0x100? seems to be ignoring this header?
         self._assign_pos(header, 0x39, (self.firstFree - 0x100).to_bytes(3, "big"))
         self._assign_pos(header, 0x3c, self.zeros)
@@ -93,7 +100,7 @@ class Header:
             f"  name: {self.name!s}",
             f"  version: {self.version!s}",
             f"  timestamp: {self.timestamp!s}, raw: {self.timestamp_raw!s}",
-            f"  mode: {self.mode}",
+            f"  file type: {self.file_type} ({self.FILE_TYPES.get(self.file_type, 'Unknown Type')})",
             f"  firstFree: 0x{self.firstFree:X}",
             f"  zeros: {self.zeros!s}"
         ])

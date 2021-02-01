@@ -51,7 +51,7 @@ class TestSpeechLib_Read_SpLibEng(unittest.TestCase):
                                 name=b'SCOM Sp Lib Eng',
                                 version=b'1.3.0',
                                 timestamp_raw=b'2/17/2017',
-                                mode=2))
+                                file_type=2))
 
         self.assertEqual(self.speechLib.imageHeader,
                          ImageHeader(index_size=0x1A00,
