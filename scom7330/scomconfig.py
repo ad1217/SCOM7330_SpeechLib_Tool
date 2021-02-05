@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from pyparsing import (And, Char, Combine, Empty, Forward, Group, MatchFirst,
                        Or, Suppress, Word, WordEnd, WordStart,
-                       ZeroOrMore, alphas, matchPreviousLiteral, nums)
+                       ZeroOrMore, alphas, matchPreviousLiteral, nums, ungroup)
 
 
 class NumWord(Word):
@@ -195,7 +195,7 @@ class SendMessage(SCOMCommand):
     message: str
 
     def to_dtmf(self):
-        return f'{self.root} {self.message}'
+        return f'{self.root} {" ".join(self.message)}'
 
 
 @dataclass
@@ -211,14 +211,21 @@ class StopSpeechInProgress(SCOMCommand):
 
 @dataclass
 class CreateNewMacro(SCOMCommand):
+    # TODO: validate passwd & command vs macro
     root = '20'
-    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO('command'))
+    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO)
 
     macro_name: str
-    command: object  # TODO: type should be more specific
+    password: Optional[str] = None
+    command: Optional[SCOMCommand] = None
+    macro: Optional[str] = None
 
     def to_dtmf(self):
-        return f'{self.root} {self.macro_name} {self.command.to_dtmf()}'
+        if self.password is not None:
+            cmd_str = f'{self.password} {self.command.to_dtmf()}'
+        else:
+            cmd_str = self.command
+        return f'{self.root} {self.macro_name} {cmd_str}'
 
 
 @dataclass
@@ -324,7 +331,7 @@ class CreateSetpoint(SCOMCommand):
     minute: str
 
     def to_dtmf(self):
-        return f'{self.root} {self.setpoint_number} {self.macro} {self.month:02} {self.day:02} {self.hour:02} {self.minute:02}'
+        return f'{self.root} {self.setpoint_number} {self.macro} {self.month:0>2} {self.day:0>2} {self.hour:0>2} {self.minute:0>2}'
 
 
 @dataclass
@@ -348,14 +355,21 @@ class EnableDisableSetpoint(SCOMCommand):
 
 @dataclass
 class AppendToMacro(SCOMCommand):
+    # TODO: validate passwd & command vs macro
     root = '29'
-    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO('command'))
+    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO)
 
     macro_name: str
-    command: object  # TODO: type should be more specific
+    password: Optional[str] = None
+    command: Optional[SCOMCommand] = None
+    macro: Optional[str] = None
 
     def to_dtmf(self):
-        return f'{self.root} {self.macro_name} {self.command.to_dtmf()}'
+        if self.password is not None:
+            cmd_str = f'{self.password} {self.command.to_dtmf()}'
+        else:
+            cmd_str = self.command
+        return f'{self.root} {self.macro_name} {cmd_str}'
 
 
 @dataclass
@@ -610,7 +624,7 @@ class SelectPathAccessMode(SCOMCommand):
     mode: str
 
     def to_dtmf(self):
-        return f'{self.root} {self.reciever} {self.mode}'
+        return f'{self.root} {self.receiver} {self.mode}'
 
 
 @dataclass
@@ -828,20 +842,19 @@ def build_command_parser():
         yield command.parser.copy().setParseAction(command.from_dtmf).setName(command.__name__)
 
 
-cmd_passwd = (PASSWD ^ 'DD')("password")
-cmd_p = cmd_passwd + Or(list(build_command_parser())).setName('Command').setResultsName('command')
-CMD_OR_MACRO <<= Group(cmd_p ^ MACRO_NAME)
-line_p = cmd_p + Suppress('*')
-
-print(cmd_p.parseString('DD 94 12 1'))
-print(CreateNewMacro('AAAA', AssignMasterPassword('AAAA')).to_dtmf())
-
+PASSWD = (PASSWD ^ 'DD')("password")
+COMMAND = ungroup(Or(list(build_command_parser()))).setName('Command').setResultsName('command')
+COMMAND_AND_PASSWD = PASSWD + COMMAND
+CMD_OR_MACRO <<= COMMAND_AND_PASSWD ^ MACRO_NAME('command')
+LINE = COMMAND_AND_PASSWD + Suppress('*')
 
 def parse(string):
     print(f"{string.strip():<100}", end='')
-    result = line_p.parseString(string, parseAll=True)
+    result = LINE.parseString(string, parseAll=True)
     #print(result.asXML())
-    print(result['command'])
+    print(result['command'].to_dtmf())
+    print(COMMAND.parseString(result['command'].to_dtmf()))
+
 
 print()
 with open("../../SCOM7330-Configs/FullConfigs/W1FN/Common.txt") as f:
