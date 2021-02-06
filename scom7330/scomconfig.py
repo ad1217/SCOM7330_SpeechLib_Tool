@@ -221,7 +221,7 @@ class CreateNewMacro(SCOMCommand):
         if self.password is not None:
             cmd_str = f'{self.password} {self.command.to_dtmf()}'
         else:
-            cmd_str = self.command
+            cmd_str = self.macro
         return f'{self.root} {self.macro_name} {cmd_str}'
 
 
@@ -365,7 +365,7 @@ class AppendToMacro(SCOMCommand):
         if self.password is not None:
             cmd_str = f'{self.password} {self.command.to_dtmf()}'
         else:
-            cmd_str = self.command
+            cmd_str = self.macro
         return f'{self.root} {self.macro_name} {cmd_str}'
 
 
@@ -834,7 +834,7 @@ def build_command_parser():
 PASSWD = (PASSWD ^ 'DD')("password")
 COMMAND = ungroup(Or(list(build_command_parser()))).setName('Command').setResultsName('command')
 COMMAND_AND_PASSWD = PASSWD + COMMAND
-CMD_OR_MACRO <<= COMMAND_AND_PASSWD ^ MACRO_NAME('command')
+CMD_OR_MACRO <<= COMMAND_AND_PASSWD ^ MACRO_NAME('macro')
 LINE = COMMAND_AND_PASSWD + Suppress('*')
 
 def parse(string):
