@@ -293,7 +293,7 @@ class SetEventTriggeredMacro(SCOMCommand):
     macro_name: Optional[str] = None
 
     def to_dtmf(self):
-        return f'{self.root} 0{self.port}{self.event_macro_number} {self.macro_name}'
+        return f'{self.root} 0{self.port}{self.event_macro_number} {self.macro_name or ""}'
 
 
 @dataclass
@@ -378,7 +378,7 @@ class SelectMessage(SCOMCommand):
     message_contents: Optional[str] = None
 
     def to_dtmf(self):
-        return f'{self.root} {self.message_number} {self.message_contents}'
+        return f'{self.root} {self.message_number} {" ".join(self.message_contents)}'
 
 
 @dataclass
@@ -593,7 +593,7 @@ class SelectIDTailMessages(SCOMCommand):
     message_number: Optional[str] = None
 
     def to_dtmf(self):
-        return f'{self.root} 0{self.message} {self.message_number}'
+        return f'{self.root} 0{self.message} {self.message_number or ""}'
 
 
 @dataclass
@@ -621,7 +621,7 @@ class SelectPathAccessMode(SCOMCommand):
     mode: str
 
     def to_dtmf(self):
-        return f'{self.root} {self.receiver} {self.mode}'
+        return f'{self.root} {self.receiver}{self.transmitter} {self.mode}'
 
 
 @dataclass
