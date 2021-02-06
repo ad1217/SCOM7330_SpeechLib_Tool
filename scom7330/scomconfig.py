@@ -6,6 +6,8 @@ from pyparsing import (And, Char, Combine, Empty, Forward, Group, MatchFirst,
                        Or, Suppress, Word, WordEnd, WordStart,
                        ZeroOrMore, alphas, matchPreviousLiteral, nums, ungroup)
 
+from tables import MessageType, ValueType
+
 
 class NumWord(Word):
     def __init__(self, exact=0, **kwargs):
@@ -18,6 +20,10 @@ def integer(max_value, max_chars=0, exact_chars=0):
         .addCondition(lambda toks: toks[0] <= max_value)
 
 
+def EnumValue(enum):
+    return Char(''.join(str(t.value) for t in enum)).addParseAction(lambda x: enum(int(x[0])))
+
+
 DTMF_CHARS = nums + 'ABCD'
 BOOLEAN = Char('01')
 UINT16 = integer(max_chars=5, max_value=65535)
@@ -27,6 +33,9 @@ MACRO_NAME = Word(nums + 'ABCD', max=4).setName('Short Macro Name')
 FULL_MACRO_NAME = Word(nums + 'ABCD', exact=4).setName('Macro Name')
 COUNTER_NUMBER = Suppress('0') + Char('0123')('port') + NumWord(2)('counter')
 USER_TIMER = integer(19, exact_chars=2)
+
+MESSAGE_TYPE = EnumValue(MessageType)
+VALUE_TYPE = EnumValue(ValueType)
 
 # TODO: better message matching
 MESSAGE = Group(NumWord()[...]).setName("Message")
@@ -132,31 +141,19 @@ class SetTimerValue(SCOMCommand):
 
 @dataclass
 class SetDefaultMessageLevel(SCOMCommand):
-    message_types = {
-        "0": "CW",
-        "1": "Single-Tone Beep",
-        "2": "Dual-Tone Beep",
-        "3": "Single-Tone Page",
-        "4": "Two-Tone Page",
-        "5": "Five/Six-Tone Page",
-        "6": "DTMF Page",
-        "7": "SELCAL Page",
-        "8": "Speech Playback",
-    }
-
     root = '10'
     parser = Group(Suppress(root) + Suppress('0') +
                    Char('123')('transmitter') +
                    Suppress('0') +
-                   Char('012345678')('message_type') +
+                   MESSAGE_TYPE('message_type') +
                    integer(exact_chars=2, max_value=98)('level'))
 
     transmitter: str
-    message_type: str
+    message_type: MessageType
     level: int
 
     def to_dtmf(self):
-        return f'{self.root} 0{self.transmitter}0{self.message_type} {self.level:02}'
+        return f'{self.root} 0{self.transmitter}0{self.message_type.value} {self.level:02}'
 
 
 @dataclass
@@ -708,28 +705,20 @@ class ControlTransmitterToneGenerator(SCOMCommand):
 
 @dataclass
 class IfThenElse(SCOMCommand):
-    value_types = {
-        '00': 'timers',
-        '03': 'software switch',
-        '04': 'boolean',
-        '05': 'scheduler setpoint enable',
-        '06': 'user timers',
-    }
-
     root = '76'
     parser = Group(Suppress(root) +
-                   Or(value_types.keys())('value_type') +
+                   Suppress('0') + VALUE_TYPE('value_type') +
                    NumWord(4)('value') +
                    FULL_MACRO_NAME('true_macro') +
                    FULL_MACRO_NAME('false_macro')[0, 1])
 
-    value_type: str
+    value_type: ValueType
     value: str
     true_macro: str
     false_macro: Optional[str] = None
 
     def to_dtmf(self):
-        out = f'76 {self.value_type} {self.value} {self.true_macro}'
+        out = f'76 0{self.value_type.value} {self.value} {self.true_macro}'
         if self.false_macro is not None:
             out += ' ' + self.false_macro
         return out
