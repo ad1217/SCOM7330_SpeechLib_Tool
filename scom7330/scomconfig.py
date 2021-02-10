@@ -845,8 +845,10 @@ def parse(string):
     print(COMMAND.parseString(result['command'].to_dtmf()))
 
 
-print()
-with open("../../SCOM7330-Configs/FullConfigs/W1FN/Common.txt") as f:
-    lines = f.readlines()
-    for line in lines[1:-1]:
-        parse(line)
+if __name__ == '__main__':
+    print()
+    with (open("../../SCOM7330-Configs/FullConfigs/W1FN/Common.txt") as f,
+          open("temp.txt", 'w') as out_f):
+        lines = f.readlines()
+        for line in lines[1:-1]:
+            parse(line)
