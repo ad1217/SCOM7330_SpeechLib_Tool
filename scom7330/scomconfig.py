@@ -20,8 +20,8 @@ def integer(max_value, max_chars=0, exact_chars=0):
         .addCondition(lambda toks: toks[0] <= max_value)
 
 
-def EnumValue(enum):
-    return Char(''.join(str(t.value) for t in enum)).addParseAction(lambda x: enum(int(x[0])))
+def EnumValue(enum, zfill=0):
+    return Or([str(t.value).zfill(zfill) for t in enum]).addParseAction(lambda x: enum(int(x[0])))
 
 
 DTMF_CHARS = nums + 'ABCD'
