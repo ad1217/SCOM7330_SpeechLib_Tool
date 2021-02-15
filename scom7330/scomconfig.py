@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 from collections.abc import Iterable
@@ -46,6 +47,15 @@ class SCOMCommand:
     @classmethod
     def from_dtmf(cls, tokens):
         return cls(**tokens[0].asDict())
+
+    def apply(self, config: ConfigAcc) -> str:
+        raise NotImplementedError()
+
+
+@dataclass
+class ConfigAcc:
+    macros: dict[str, list[Union[SCOMCommand, str]]] = field(default_factory=dict)
+    switches: dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass
@@ -224,6 +234,13 @@ class CreateNewMacro(SCOMCommand):
             cmd_str = self.macro
         return f'{self.root} {self.macro_name} {cmd_str}'
 
+    def apply(self, config: ConfigAcc) -> None:
+        if self.macro_name in config.macros:
+            # TODO: better exception type
+            raise ValueError(f"Macro name {self.macro_name} already in use!")
+
+        config.macros[self.macro_name] = [self.command]
+
 
 @dataclass
 class EraseMacro(SCOMCommand):
@@ -235,6 +252,10 @@ class EraseMacro(SCOMCommand):
     def to_dtmf(self):
         return f'{self.root} {self.macro_name}'
 
+    def apply(self, config: ConfigAcc) -> None:
+        if self.macro_name in config.macros:
+            del config.macros[self.macro_name]
+
 
 @dataclass
 class EraseAllMacros(SCOMCommand):
@@ -243,6 +264,9 @@ class EraseAllMacros(SCOMCommand):
 
     def to_dtmf(self):
         return f'{self.root} 00'
+
+    def apply(self, config: ConfigAcc) -> None:
+        config.macros.clear()
 
 
 @dataclass
@@ -254,6 +278,10 @@ class RemoveLastCommandFromMacro(SCOMCommand):
 
     def to_dtmf(self):
         return f'{self.root} {self.macro_name}'
+
+    def apply(self, config: ConfigAcc) -> None:
+        config.macros[self.macro_name].pop()
+
 
 
 @dataclass
@@ -306,6 +334,10 @@ class RenameMacro(SCOMCommand):
 
     def to_dtmf(self):
         return f'{self.root} {self.old_name} {self.new_name}'
+
+    def apply(self, config: ConfigAcc) -> None:
+        config.macros[self.new_name] = config.macros[self.old_name]
+        del config.macros[self.old_name]
 
 
 @dataclass
@@ -367,6 +399,9 @@ class AppendToMacro(SCOMCommand):
         else:
             cmd_str = self.macro
         return f'{self.root} {self.macro_name} {cmd_str}'
+
+    def apply(self, config: ConfigAcc) -> None:
+        config.macros[self.macro_name].append(self.command)
 
 
 @dataclass
