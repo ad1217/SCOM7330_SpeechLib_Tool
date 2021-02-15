@@ -1,55 +1,52 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional
 from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Optional, Union
 
-from pyparsing import (And, Char, Combine, Empty, Forward, Group, MatchFirst,
-                       Or, Suppress, Word, WordEnd, WordStart,
-                       ZeroOrMore, alphas, matchPreviousLiteral, nums, ungroup)
+from pyparsing import (Char, Combine, Forward, Group, Or, Suppress, Word, nums,
+                       restOfLine, ungroup)
 
-from tables import MessageType, ValueType
+from .dtmfparsing import (BOOLEAN, DTMF_CHARS, UINT16, DTMFParsable, EnumValue,
+                          Integer, NumWord)
+from .tables import MessageType, ValueType
 
-
-class NumWord(Word):
-    def __init__(self, exact=0, **kwargs):
-        super().__init__(nums, exact=exact, **kwargs)
-
-
-def integer(max_value, max_chars=0, exact_chars=0):
-    return Word(nums, max=max_chars, exact=exact_chars) \
-        .addParseAction(lambda toks: int(toks[0])) \
-        .addCondition(lambda toks: toks[0] <= max_value)
-
-
-def EnumValue(enum, zfill=0):
-    return Or([str(t.value).zfill(zfill) for t in enum]).addParseAction(lambda x: enum(int(x[0])))
-
-
-DTMF_CHARS = nums + 'ABCD'
-BOOLEAN = Char('01')
-UINT16 = integer(max_chars=5, max_value=65535)
 PASSWD = Or([Word(DTMF_CHARS, exact=2), Word(DTMF_CHARS, exact=4), Word(DTMF_CHARS, exact=6)])
 ROOT_NUMBER = NumWord(2)  # TODO: filter to root numbers in use?
 MACRO_NAME = Word(nums + 'ABCD', max=4).setName('Short Macro Name')
 FULL_MACRO_NAME = Word(nums + 'ABCD', exact=4).setName('Macro Name')
 COUNTER_NUMBER = Suppress('0') + Char('0123')('port') + NumWord(2)('counter')
-USER_TIMER = integer(19, exact_chars=2)
+USER_TIMER = Integer(19, exact_chars=2)
 
 MESSAGE_TYPE = EnumValue(MessageType)
 VALUE_TYPE = EnumValue(ValueType)
 
 # TODO: better message matching
 MESSAGE = Group(NumWord()[...]).setName("Message")
-CMD_OR_MACRO = Forward()
 
 
-class SCOMCommand:
-    @classmethod
-    def from_dtmf(cls, tokens):
-        return cls(**tokens[0].asDict())
+COMMAND = Forward()
+
+
+class SCOMCommand(DTMFParsable):
+    root: str
 
     def apply(self, config: ConfigAcc) -> str:
         raise NotImplementedError()
+
+
+@dataclass
+class PasswordAndCommand(DTMFParsable):
+    parser = Group(PASSWD('password') + COMMAND('command'))
+
+    password: str
+    command: SCOMCommand
+
+    def to_dtmf(self):
+        return f'{self.password} {self.command.to_dtmf()}'
+
+
+PASSWD_AND_COMMAND = PasswordAndCommand.get_parser()
+CMD_OR_MACRO = ungroup(PASSWD_AND_COMMAND ^ MACRO_NAME('macro'))
 
 
 @dataclass
@@ -79,7 +76,7 @@ class SelectCTCSSEncoderFrequency(SCOMCommand):
     root = '03'
     parser = Group(Suppress(root) +
                    Char('123')('transmitter') +
-                   integer(64, max_chars=2)('tone_number'))
+                   Integer(64, max_chars=2)('tone_number'))
 
     transmitter: str
     tone_number: int
@@ -156,7 +153,7 @@ class SetDefaultMessageLevel(SCOMCommand):
                    Char('123')('transmitter') +
                    Suppress('0') +
                    MESSAGE_TYPE('message_type') +
-                   integer(exact_chars=2, max_value=98)('level'))
+                   Integer(exact_chars=2, max_value=98)('level'))
 
     transmitter: str
     message_type: MessageType
@@ -218,20 +215,18 @@ class StopSpeechInProgress(SCOMCommand):
 
 @dataclass
 class CreateNewMacro(SCOMCommand):
-    # TODO: validate passwd & command vs macro
     root = '20'
-    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO)
+    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO('command'))
 
     macro_name: str
-    password: Optional[str] = None
-    command: Optional[SCOMCommand] = None
-    macro: Optional[str] = None
+    command: Union[PasswordAndCommand, str]
 
     def to_dtmf(self):
-        if self.password is not None:
-            cmd_str = f'{self.password} {self.command.to_dtmf()}'
+        if type(self.command) == str:
+            cmd_str = self.command
         else:
-            cmd_str = self.macro
+            cmd_str = self.command.to_dtmf()
+
         return f'{self.root} {self.macro_name} {cmd_str}'
 
     def apply(self, config: ConfigAcc) -> None:
@@ -289,13 +284,13 @@ class SetClockAndCalendar(SCOMCommand):
     # TODO: fix bounds checking
     root = '25'
     parser = Group(Suppress(root) +
-                   integer(99, exact_chars=2)('year') +
-                   integer(12, exact_chars=2)('month') +
-                   integer(31, exact_chars=2)('day_of_month') +
-                   integer(6, exact_chars=1)('day_of_week') +
-                   integer(23, exact_chars=2)('hour') +
-                   integer(59, exact_chars=2)('minute') +
-                   integer(59, exact_chars=2)('second'))
+                   Integer(99, exact_chars=2)('year') +
+                   Integer(12, exact_chars=2)('month') +
+                   Integer(31, exact_chars=2)('day_of_month') +
+                   Integer(6, exact_chars=1)('day_of_week') +
+                   Integer(23, exact_chars=2)('hour') +
+                   Integer(59, exact_chars=2)('minute') +
+                   Integer(59, exact_chars=2)('second'))
 
     year: int
     month: int
@@ -384,20 +379,17 @@ class EnableDisableSetpoint(SCOMCommand):
 
 @dataclass
 class AppendToMacro(SCOMCommand):
-    # TODO: validate passwd & command vs macro
     root = '29'
-    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO)
+    parser = Group(Suppress(root) + FULL_MACRO_NAME('macro_name') + CMD_OR_MACRO('command'))
 
     macro_name: str
-    password: Optional[str] = None
-    command: Optional[SCOMCommand] = None
-    macro: Optional[str] = None
+    command: Union[PasswordAndCommand, str]
 
     def to_dtmf(self):
-        if self.password is not None:
-            cmd_str = f'{self.password} {self.command.to_dtmf()}'
+        if type(self.command) == str:
+            cmd_str = self.command
         else:
-            cmd_str = self.macro
+            cmd_str = self.command.to_dtmf()
         return f'{self.root} {self.macro_name} {cmd_str}'
 
     def apply(self, config: ConfigAcc) -> None:
@@ -675,7 +667,7 @@ class SetSoftwareSwitch(SCOMCommand):
 class SelectLogicOutputsLatchedON(SCOMCommand):
     # TODO: bounds checking
     root = '70'
-    parser = Group(Suppress(root) + integer(11, exact_chars=2)('output*')[1, ...])
+    parser = Group(Suppress(root) + Integer(11, exact_chars=2)('output*')[1, ...])
 
     output: Iterable[int]
 
@@ -687,7 +679,7 @@ class SelectLogicOutputsLatchedON(SCOMCommand):
 class SelectLogicOutputsLatchedOFF(SCOMCommand):
     # TODO: bounds checking
     root = '71'
-    parser = Group(Suppress(root) + integer(11, exact_chars=2)('output*')[1, ...])
+    parser = Group(Suppress(root) + Integer(11, exact_chars=2)('output*')[1, ...])
 
     output: Iterable[int]
 
@@ -699,7 +691,7 @@ class SelectLogicOutputsLatchedOFF(SCOMCommand):
 class SelectLogicOutputsMomentaryON(SCOMCommand):
     # TODO: bounds checking
     root = '72'
-    parser = Group(Suppress(root) + integer(11, exact_chars=2)('output*')[1, ...])
+    parser = Group(Suppress(root) + Integer(11, exact_chars=2)('output*')[1, ...])
 
     output: Iterable[int]
 
@@ -711,7 +703,7 @@ class SelectLogicOutputsMomentaryON(SCOMCommand):
 class SelectLogicOutputsMomentaryOFF(SCOMCommand):
     # TODO: bounds checking
     root = '73'
-    parser = Group(Suppress(root) + integer(11, exact_chars=2)('output*')[1, ...])
+    parser = Group(Suppress(root) + Integer(11, exact_chars=2)('output*')[1, ...])
 
     output: Iterable[int]
 
@@ -725,8 +717,8 @@ class ControlTransmitterToneGenerator(SCOMCommand):
     root = '79'
     parser = Group(Suppress(root) +
                    Char('123')('transmitter') +
-                   Suppress('0') + integer(3, exact_chars=1)('mode') +
-                   integer(98, exact_chars=2)('message_level') +
+                   Suppress('0') + Integer(3, exact_chars=1)('mode') +
+                   Integer(98, exact_chars=2)('message_level') +
                    NumWord(4)('tone_code'))
 
     transmitter: str
@@ -860,24 +852,23 @@ class CancelPause(SCOMCommand):
     def to_dtmf(self):
         return f'{self.root} 1 {self.port}'
 
+COMMAND <<= ungroup(Or([command.get_parser() for command in SCOMCommand.__subclasses__()])) \
+    .setName('Command')
 
-def build_command_parser():
-    for command in SCOMCommand.__subclasses__():
-        yield command.parser.copy().setParseAction(command.from_dtmf).setName(command.__name__)
+LINE = PASSWD_AND_COMMAND('password_and_command') + Suppress('*') + \
+    (Suppress(';') + restOfLine('comment'))[0, 1]
 
-
-PASSWD = (PASSWD ^ 'DD')("password")
-COMMAND = ungroup(Or(list(build_command_parser()))).setName('Command').setResultsName('command')
-COMMAND_AND_PASSWD = PASSWD + COMMAND
-CMD_OR_MACRO <<= COMMAND_AND_PASSWD ^ MACRO_NAME('macro')
-LINE = COMMAND_AND_PASSWD + Suppress('*')
 
 def parse(string):
-    print(f"{string.strip():<100}", end='')
+    print(f"original: {string.strip():<100}", end='')
     result = LINE.parseString(string, parseAll=True)
+    print(result['password_and_command'])
+    command = result['password_and_command'].command
     #print(result.asXML())
-    print(result['command'].to_dtmf())
-    print(COMMAND.parseString(result['command'].to_dtmf()))
+    print("back to dtmf:", command.to_dtmf())
+    print(COMMAND.parseString(command.to_dtmf()))
+
+    return result
 
 
 if __name__ == '__main__':
