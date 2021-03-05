@@ -4,367 +4,585 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Tuple
 
+import construct as cs
+import construct_typed as cst
+from construct_typed import TStructField as SF
+
+
+# TODO: ideally this would be derived from the controller record,
+#       but I don't want to do that quite yet
+PORT_NUM = 3
+MACRO_LENGTH = 4  # 4 DTMF characters, typically 2 bytes
+
+
+class BCDByte(cs.Adapter):
+    def _decode(self, obj: int, context: cs.Context, path: cs.PathType) -> int:
+        return (obj >> 4) * 10 + (obj & 0xf)
+
+    def _encode(self, obj: int, context: cs.Context, path: cs.PathType) -> int:
+        return ((obj // 10) << 4) + (obj % 10)
+
+
+class HexString(cs.Adapter):
+    def _decode(self, obj: bytes, context: cs.Context, path: cs.PathType) -> str:
+        return obj.hex()
+
+    def _encode(self, obj: str, context: cs.Context, path: cs.PathType) -> bytes:
+        return bytes.fromhex(obj)
+
+
+class BCDDatetimeAdapter(cs.Adapter):
+    def _decode(self, obj: list[int], context: cs.Context, path: cs.PathType) -> datetime:
+        # TODO: figure out what the middle (obj[3]) byte is
+        # might be day of week, with mon = 1 ?
+        return datetime(year=2000 + obj[6], month=obj[5], day=obj[4],
+                        hour=obj[2], minute=obj[1], second=obj[0])
+
+    def _encode(self, obj: datetime, context: cs.Context, path: cs.PathType) -> list[int]:
+        return [
+            obj.second,
+            obj.minute,
+            obj.hour,
+            obj.weekday() + 1,  # TODO: speculative
+            obj.day,
+            obj.month,
+            obj.year - 2000,
+        ]
+
+
+class FileVersionAdapter(cs.Adapter):
+    def _decode(self, obj: list[int], context: cs.Context, path: cs.PathType) -> str:
+        if obj[0] == 0x7f:
+            return 'no file'
+        elif obj[0] == 0xff:
+            return "version not set"
+        else:
+            return '.'.join(str(n) for n in obj)
+
+    def _encode(self, obj: str, context: cs.Context, path: cs.PathType) -> list[int]:
+        if obj == 'no file':
+            return [0x7f, 0xff, 0xff]
+        elif obj == "version not set":
+            return [0x7f, 0xff, 0xff]
+        else:
+            return [int(x) for x in obj.split('.')]
+
+
+BCDDatetime = BCDDatetimeAdapter(BCDByte(cs.Byte)[7])
+FileVersion = FileVersionAdapter(cs.Byte[3])
+
 
 class ConfigRecord:
-    record_type: int
-
-    @staticmethod
-    def _unpack_date(data: bytes) -> datetime:
-        """Datetime is represented in packed bcd"""
-        def bcd_to_int(bcd_num: int) -> int:
-            return (bcd_num >> 4) * 10 + (bcd_num & 0xf)
-
-        ints = [bcd_to_int(n) for n in reversed(data[0:7])]
-
-        print(ints)
-
-        # TODO: figure out what the middle byte (data[3]) is
-        # might be day of week, with mon = 1 ?
-        return datetime(year=2000 + ints[0], month=ints[1], day=ints[2],
-                        hour=ints[4], minute=ints[5], second=ints[6])
-
-    @staticmethod
-    def _pack_date(date: datetime) -> bytes:
-        def int_to_bcd(num: int) -> int:
-            return ((num // 10) << 4) + (num % 10)
-
-        return bytes([
-            int_to_bcd(date.second),
-            int_to_bcd(date.minute),
-            int_to_bcd(date.hour),
-            date.weekday() + 1,  # TODO: speculative
-            int_to_bcd(date.day),
-            int_to_bcd(date.month),
-            int_to_bcd(date.year - 2000),
-        ])
+    records: list[cst.TContainerBase] = []
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> Tuple[ConfigRecord, bytes]:
-        raise NotImplementedError
+    def register(cls, record):
+        cls.records.append(record)
+        return record
 
-    def to_bytes(self) -> bytes:
-        raise NotImplementedError
+    @classmethod
+    def get_parsers(cls):
+        return [cst.TStruct(c) for c in cls.records]
 
 
+@ConfigRecord.register
 @dataclass
-class Controller(ConfigRecord):
-    record_type = 0
-    element_size = 0x20
-    num_elements = 1
+class Controller(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x20, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
 
-    attributes: int
-    signature: bytes
-    structure_version: int
-    controller_firmware_version: str
-    configuration_version: int
-    controller_cold_reset_datetime: datetime
-    receivers: int
-    transmitters: int
-    password_digits: int
-    macro_name_digits: int
-    macro_attr_size: int
-    num_config_records: int
+    signature: bytes = SF(cs.Bytes(4))
+    structure_version: int = SF(cs.Byte)
+    controller_firmware_version: str = SF(FileVersion)
+    configuration_version: int = SF(cs.Byte)
+    controller_cold_reset_datetime: datetime = SF(cs.Padded(17, BCDDatetime, b'\xff'))
+    receivers: int = SF(cs.Byte)
+    transmitters: int = SF(cs.Byte)
+    password_digits: int = SF(cs.Byte)
+    macro_name_digits: int = SF(cs.Byte)
+    macro_attr_size: int = SF(cs.Byte)
+    num_config_records: int = SF(cs.Byte)
 
     @property
     def controller_type(self):
         return f'7{self.receivers}{self.transmitters}0'
 
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Tuple[Controller, bytes]:
-        record_type = data[0]
-        assert record_type == cls.record_type
-        attributes = data[1]
-        element_size = data[2]
-        assert element_size == cls.element_size
-        num_elements = data[3]
-        assert num_elements == cls.num_elements
 
-        record = cls(
-            attributes=attributes,
-            signature=data[4:8],
-            structure_version=data[8],
-            controller_firmware_version=f'{data[9]}.{data[0xa]}.{data[0xb]}',
-            configuration_version=data[0xc],
-            controller_cold_reset_datetime=cls._unpack_date(data[0xd:0x1e]),
-            receivers=data[0x1e],
-            transmitters=data[0x1f],
-            password_digits=data[0x20],
-            macro_name_digits=data[0x21],
-            macro_attr_size=data[0x22],
-            num_config_records=data[0x23],
-        )
-
-        return record, data[4 + element_size * num_elements:]
-
-    def to_bytes(self) -> bytes:
-        return bytes([
-            self.record_type,
-            self.attributes,
-            self.element_size,
-            self.num_elements,
-            *self.signature,
-            self.structure_version,
-            *[int(b) for b in self.controller_firmware_version[::2]],
-            self.configuration_version,
-            *self._pack_date(self.controller_cold_reset_datetime).ljust(17, b'\xff'),
-            self.receivers,
-            self.transmitters,
-            self.password_digits,
-            self.macro_name_digits,
-            self.macro_attr_size,
-            self.num_config_records,
-        ])
-
-
+@ConfigRecord.register
 @dataclass
-class ID(ConfigRecord):
-    record_type = 1
-    element_size = 0x36
-    num_elements = 1
+class ID(cst.TContainerBase):
+    record_type: int = SF(cs.Const(1, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x36, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
 
-    attributes: int
-    controller_model_number: str
-    controller_serial_number: str
-    controller_manufacture_datetime: datetime
-    controller_format_datetime: datetime
-    original_customer_name: str
-
-    @staticmethod
-    def _parse_null_str(data: bytes) -> str:
-        return data.partition(b'\x00')[0].decode('ascii')
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Tuple[ID, bytes]:
-        record_type = data[0]
-        assert record_type == cls.record_type
-        attributes = data[1]
-        element_size = data[2]
-        assert element_size == cls.element_size
-        num_elements = data[3]
-        assert num_elements == cls.num_elements
-
-        print(data[4:4 + element_size])
-
-        record = cls(
-            attributes,
-            controller_model_number=cls._parse_null_str(data[0x4:0xc]),
-            controller_serial_number=cls._parse_null_str(data[0xc:0x22]),
-            controller_manufacture_datetime=cls._unpack_date(data[0x14:0x1b]),
-            controller_format_datetime=cls._unpack_date(data[0x1b:0x22]),
-            original_customer_name=cls._parse_null_str(data[0x22:0x3a]),
-        )
-
-        return record, data[4 + element_size:]
-
-    def to_bytes(self) -> bytes:
-        return bytes([
-            self.record_type,
-            self.attributes,
-            self.element_size,
-            self.num_elements,
-            *self.controller_model_number.encode('ascii').ljust(8, b'\x00'),
-            *self.controller_serial_number.encode('ascii').ljust(8, b'\x00'),
-            *self._pack_date(self.controller_manufacture_datetime),
-            *self._pack_date(self.controller_format_datetime),
-            *self.original_customer_name.encode('ascii').ljust(24, b'\x00'),
-        ])
+    controller_model_number: str = SF(cs.PaddedString(8, 'ascii'))
+    controller_serial_number: str = SF(cs.PaddedString(8, 'ascii'))
+    controller_manufacture_datetime: datetime = SF(BCDDatetime)
+    controller_format_datetime: datetime = SF(BCDDatetime)
+    original_customer_name: str = SF(cs.PaddedString(24, 'ascii'))
 
 
-class Status(ConfigRecord):
-    record_type = 2
-
-
-class FWVer(ConfigRecord):
-    record_type = 3
-
-
-class Serial(ConfigRecord):
-    record_type = 4
-
-
+@ConfigRecord.register
 @dataclass
-class Name(ConfigRecord):
-    record_type = 5
-    element_size = 17
-    num_elements = 1
+class Status(cst.TContainerBase):
+    record_type: int = SF(cs.Const(2, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x5, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
 
-    attributes: int
-    controller_name: str
+    # 0 = "Out/Active-Low"
+    # 1 = "In/Active-High"
+    cor: list[bool] = SF(cs.BitsSwapped(cs.Bitwise(cs.Padded(8, cs.Flag[PORT_NUM]))))
+    ctcss: list[bool] = SF(cs.BitsSwapped(cs.Bitwise(cs.Padded(8, cs.Flag[PORT_NUM]))))
+    ptt: list[bool] = SF(cs.BitsSwapped(cs.Bitwise(cs.Padded(8, cs.Flag[PORT_NUM]))))
 
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Tuple[Name, bytes]:
-        record_type = data[0]
-        assert record_type == cls.record_type
-        attributes = data[1]
-        element_size = data[2]
-        assert element_size == cls.element_size
-        num_elements = data[3]
-        assert num_elements == cls.num_elements
+    # 0 = "Out"
+    # 1 = "In" (probably)
+    aux: list[bool] = SF(cs.BitsSwapped(cs.Bitwise(cs.Padded(8, cs.Flag[5]))))
 
-        name = data[4:4 + element_size].strip(b'\x00').decode('ascii')
-
-        record = cls(attributes, name)
-
-        return record, data[4 + element_size * num_elements:]
-
-    def to_bytes(self) -> bytes:
-        return bytes([
-            self.record_type,
-            self.attributes,
-            self.element_size,
-            self.num_elements,
-            *self.controller_name.encode('ascii').ljust(self.element_size, b'\x00')
-        ])
+    unknown: int = SF(cs.Byte) # TODO
 
 
+@ConfigRecord.register
 @dataclass
-class Passwords(ConfigRecord):
-    record_type = 6
-    element_size = 1
+class FWVer(cst.TContainerBase):
+    record_type: int = SF(cs.Const(3, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x30, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
 
-    attributes: int
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Tuple[Passwords, bytes]:
-        record_type = data[0]
-        assert record_type == cls.record_type
-        attributes = data[1]
-        element_size = data[2]
-        num_elements = data[3]
-
-        return cls(attributes), data[4 + element_size * num_elements:]
-
-
-class SoftwareSwitch(ConfigRecord):
-    record_type = 7
-
-
-class EventTrigMacro(ConfigRecord):
-    record_type = 8
+    BootROM: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    SBOOT: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Diagnostics: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    # TODO: figure out a better way of handling this?
+    unknown: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    SCOM_A: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    SCOM_B: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Configuration_A: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Configuration_B: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Configuration_C: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Configuration_D: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Custom_Audio_Library: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
+    Speech_Library: bytes = SF(cs.Padded(4, FileVersion, b'\xff'))
 
 
-class SchedulerSetpoint(ConfigRecord):
-    record_type = 9
-
-
-class Macros(ConfigRecord):
-    record_type = 10
-
-
-class Timers10(ConfigRecord):
-    record_type = 0xb
-#     element_size =
-
-#     attributes: int
-#     num_misc: int
-#     num_port: int
-
-#     @classmethod
-#     def from_bytes(cls, data: bytes) -> Tuple[Timers10, bytes]:
-#          record_type = data[0]
-#          assert record_type == cls.record_type
-#          attributes = data[1]
-#          element_size = data[2]
-#          num_misc = data[3]
-#          num_port = data[4]
-
-
-class Timers100(ConfigRecord):
-    record_type = 0xc
-
-
-class Timers1000(ConfigRecord):
-    record_type = 0xd
-
-
-class Counters(ConfigRecord):
-    record_type = 0xe
-    # element_size =
-
-    # attributes: int
-    # num_misc: int
-    # num_port: int
-
-    # @classmethod
-    # def from_bytes(cls, data: bytes) -> Tuple[Counters, bytes]:
-    #      record_type = data[0]
-    #      assert record_type == cls.record_type
-    #      attributes = data[1]
-    #      element_size = data[2]
-    #      num_misc = data[3]
-    #      num_port = data[4]
-
-
-
-class Messages(ConfigRecord):
-    record_type = 0xf
-
-
-class PathMode(ConfigRecord):
-    record_type = 0x10
-
-
-class PathPriority(ConfigRecord):
-    record_type = 0x11
-
-
-class CTCSSEncoders(ConfigRecord):
-    record_type = 0x12
-
-
-class IDTail(ConfigRecord):
-    record_type = 0x13
-
-
-class MessageHandlers(ConfigRecord):
-    record_type = 0x14
-
-
-class DTMFDecoders(ConfigRecord):
-    record_type = 0x15
-
-
+@ConfigRecord.register
 @dataclass
-class CPWAccessTable(ConfigRecord):
-    record_type = 0x16
-    element_size = 1
+class Serial(cst.TContainerBase):
+    record_type: int = SF(cs.Const(4, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x10, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
 
-    attributes: int
-    elements: list[bool]
+    serial_signature: bytes = SF(HexString(cs.Bytes(2)))
+    console_baud_rate: int = SF(cs.Byte)  # TODO: make into an enum
+    unknown1: int = SF(cs.Byte)  # TODO
+    aux_baud_rate: int = SF(cs.Byte)  # TODO: make into an enum
+    unknown2: bytes = SF(cs.Bytes(2))  # TODO
+    second_is_console: bool = SF(cs.Flag)  # determines which port is console vs aux
+    unknown3: bytes = SF(cs.Bytes(8))  # TODO
 
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Tuple[CPWAccessTable, bytes]:
-        record_type = data[0]
-        assert record_type == cls.record_type
-        attributes = data[1]
-        element_size = data[2]
-        assert element_size == cls.element_size
-        num_elements = data[3]
-
-        elements = [bool(el) for el in data[4:4 + num_elements]]
-        return cls(attributes, elements), data[4 + num_elements:]
-
-    def to_bytes(self) -> bytes:
-        return bytes([self.record_type, self.attributes,
-                      self.element_size, len(self.elements), *self.elements])
-
-    # def to_commands(self) -> list[SCOMCommand]:
-    #     for root_number, element in enumerate(elements):
-    #         if element[root_number]:
-    #             yield AssignControlOperatorPrivilegeLevel(root_number, True)
+    # speeds = ["57600", "38400", "19200", " 9600", " 4800", " 2400", " 1200",]
+    # "Console,   %s, 8 data bits, no parity, no flow control, no modem control\n"
+    # "Auxiliary, %s, 8 data bits, no parity, no flow control, no modem control\n"
 
 
-class UserTimers(ConfigRecord):
-    record_type = 0x17
+@ConfigRecord.register
+@dataclass
+class Name(cst.TContainerBase):
+    record_type: int = SF(cs.Const(5, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x11, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
+
+    controller_name: str = SF(cs.PaddedString(cs.this.element_size, 'ascii'))
 
 
-class CmdRespRouting(ConfigRecord):
-    record_type = 0x18
+@ConfigRecord.register
+@dataclass
+class Passwords(cst.TContainerBase):
+    record_type: int = SF(cs.Const(6, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(3, cs.Byte))
+    num_elements: int = SF(cs.Const(3, cs.Byte))
+
+    # TODO: These are probably more dynamic in size...
+    MPW: bytes = SF(cs.Hex(cs.Bytes(3)))  # TODO: trim trailing 0xFF, convert to string
+    CPW: bytes = SF(cs.Hex(cs.Bytes(3)))  # TODO: trim trailing 0xFF, convert to string
+    RBPW: bytes = SF(cs.Hex(cs.Bytes(3)))  # TODO: trim trailing 0xFF, convert to string
 
 
-class ToneGenerators(ConfigRecord):
-    record_type = 0x19
+@ConfigRecord.register
+@dataclass
+class SoftwareSwitch(cst.TContainerBase):
+    record_type: int = SF(cs.Const(7, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x32, cs.Byte))
+    num_elements: int = SF(cs.Const(1, cs.Byte))
+
+    # TODO: filter to printable/setable, map to names
+    switches: list[bool] = SF(cs.BitsSwapped(cs.Bitwise(cs.Flag[400])))
 
 
-class LongNames(ConfigRecord):
-    record_type = 0x1a
+@ConfigRecord.register
+@dataclass
+class EventTrigMacro(cst.TContainerBase):
+    @dataclass
+    class ETM(cst.TContainerBase):
+        num: int = SF(cs.Byte)
+        macro: str = SF(HexString(cs.Bytes(MACRO_LENGTH // 2)))
+
+    record_type: int = SF(cs.Const(8, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(2, cs.Byte))
+    num_misc: int = SF(cs.Const(100, cs.Byte))
+    num_port: int = SF(cs.Const(100, cs.Byte))
+
+    # TODO: map to names
+    misc: list[ETM] = SF(cs.NullTerminated(cs.GreedyRange(cst.TStruct(ETM)), term=b'\xff'))
+    port: list[list[ETM]] = SF(cs.NullTerminated(cs.GreedyRange(cst.TStruct(ETM)), term=b'\xff')[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class SchedulerSetpoint(cst.TContainerBase):
+    @dataclass
+    class Setpoint(cst.TContainerBase):
+        number: int = SF(cs.NoneOf(cs.Byte, b'\xff'))
+        macro: bytes = SF(HexString(cs.Bytes(MACRO_LENGTH // 2)))
+        unknown: int = SF(cs.Byte)  # TODO: seems to always be e0?
+        # Note that this cannot be a datetime, since "99" means "every"
+        month: bytes = SF(BCDByte(cs.Byte))
+        day: bytes = SF(BCDByte(cs.Byte))
+        hour: bytes = SF(BCDByte(cs.Byte))
+        minute: bytes = SF(BCDByte(cs.Byte))
+        flags: int = SF(cs.Byte)
+
+    record_type: int = SF(cs.Const(9, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(8, cs.Byte))
+    num_elements: int = SF(cs.Byte)
+
+    # TODO: the reporter somehow derives if the scheduler is enabled
+
+    setpoints: list[Setpoint] = SF(cs.FocusedSeq(
+        "setpoint",
+        "setpoint"/cs.GreedyRange(cst.TStruct(Setpoint)),
+        cs.Const(0xff, cs.Byte)))
+
+
+@ConfigRecord.register
+@dataclass
+class Macros(cst.TContainerBase):
+    @dataclass
+    class Macro(cst.TContainerBase):
+        location: int = SF(cs.Int16ub)
+        name: str = SF(cs.NullTerminated(HexString(cs.Bytes(MACRO_LENGTH // 2)), term=b'\xff'))
+        # TODO: 0xe0 is *
+        commands: list[bytes] = SF(cs.NullTerminated(
+            cs.GreedyRange(cs.Prefixed(cs.Byte, HexString(cs.GreedyBytes), includelength=True)),
+            term=b'\xff'))
+
+    record_type: int = SF(cs.Const(0xa, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    # TODO: this seems like it might be the max length of a macro?
+    element_size: int = SF(cs.Byte)
+    # max number of macros, hardcoded in the reporter
+    num_elements: int = SF(cs.Const(0x154, cs.Int16ub))
+
+    macros: list[Macro] = SF(cs.NullTerminated(cs.GreedyRange(cst.TStruct(Macro)), term=b'\xff\xff'))
+
+
+@ConfigRecord.register
+@dataclass
+class Timers10(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0xb, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    # TODO: real values are multiplied by 10
+    misc: list[int] = SF(cs.Int16ub[cs.this.num_misc])
+    port: list[list[int]] = SF(cs.Int16ub[cs.this.num_port][PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class Timers100(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0xc, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    # TODO: real values are multiplied by 100
+    misc: list[int] = SF(cs.Int16ub[cs.this.num_misc])
+    port: list[list[int]] = SF(cs.Int16ub[cs.this.num_port][PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class Timers1000(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0xd, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    # TODO: real values are multiplied by 1000
+    misc: list[int] = SF(cs.Int16ub[cs.this.num_misc])
+    port: list[list[int]] = SF(cs.Int16ub[cs.this.num_port][PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class Counters(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0xe, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    misc: list[int] = SF(cs.Int16ub[cs.this.num_misc])
+    port: list[list[int]] = SF(cs.Int16ub[cs.this.num_port][PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class Messages(cst.TContainerBase):
+    @dataclass
+    class Message(cst.TContainerBase):
+        num: int = SF(cs.NoneOf(cs.Byte, b'\xff'))
+        message: int = SF(HexString(cs.NullTerminated(cs.GreedyBytes, term=b'\xff')))
+
+    record_type: int = SF(cs.Const(0xf, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(0x33, cs.Byte))
+    num_misc: int = SF(cs.Const(25, cs.Byte))
+    num_port: int = SF(cs.Const(14, cs.Byte))
+
+    misc: list[Message] = SF(cs.FocusedSeq(
+        "msg",
+        "msg"/cs.GreedyRange(cst.TStruct(Message)),
+        cs.Const(0xff, cs.Byte)))
+    port: list[Message] = SF(cs.FocusedSeq(
+        "msg",
+        "msg"/cs.GreedyRange(cst.TStruct(Message)),
+        cs.Const(0xff, cs.Byte))[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class PathMode(cst.TContainerBase):
+    @dataclass
+    class PortPathMode(cst.TContainerBase):
+        # TODO: probably shouldn't be nested like this
+        class Mode(cst.EnumBase):
+            No_Access = 0
+            Carrier_Only = 1
+            CTCSS_Only = 2
+            Carrier_AND_CTCSS = 3
+            Carrier_OR_CTCSS = 4
+            Anti_CTCSS = 5
+            Always_ON = 6
+            Not_defined = 7
+
+        # TODO: this depends on PORT_NUM being 3, should probably be more dynamic
+        RXn_DTMF: int = SF(cst.TEnum(cs.Byte, Mode))
+        RX1_TXn: int = SF(cst.TEnum(cs.Byte, Mode))
+        RX2_TXn: int = SF(cst.TEnum(cs.Byte, Mode))
+        RX3_TXn: int = SF(cst.TEnum(cs.Byte, Mode))
+
+    record_type: int = SF(cs.Const(0x10, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(1, cs.Byte))
+    num_misc: int = SF(cs.Const(0, cs.Byte))
+    num_port: int = SF(cs.Const(4, cs.Byte))
+
+    port: list[PortPathMode] = SF(cst.TStruct(PortPathMode)[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class PathPriority(cst.TContainerBase):
+    @dataclass
+    class PortPathPriority(cst.TContainerBase):
+        # TODO: ignore 0 bytes
+        # TODO: ignore values outside of max number of ports
+        priority: list[int] = SF(cs.Byte[cs.this._.element_size // 2])
+        mixed: list[int] = SF(cs.Byte[cs.this._.element_size // 2])
+
+    record_type: int = SF(cs.Const(0x11, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    port: list[PortPathPriority] = SF(cst.TStruct(PortPathPriority)[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class CTCSSEncoders(cst.TContainerBase):
+    @dataclass
+    class PortCTCSSEncoder(cst.TContainerBase):
+        tone_number: int = SF(cs.Byte)
+        mode: int = SF(cs.Byte)  # TODO: make enum
+        reverse_burst: int = SF(cs.Byte)  # TODO: maybe make enum
+
+    record_type: int = SF(cs.Const(0x12, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    port: list[bytes] = SF(cst.TStruct(PortCTCSSEncoder)[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class IDTail(cst.TContainerBase):
+    @dataclass
+    class PortIDTail(cst.TContainerBase):
+        # TODO: 0xFFFF should be "None", 0xE should become '*', trailing 0xF stripped
+        initial_ID_tail: int = SF(HexString(cs.Bytes(2)))
+        normal_ID_tail: int = SF(HexString(cs.Bytes(2)))
+
+    record_type: int = SF(cs.Const(0x13, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    port: list[bytes] = SF(cst.TStruct(PortIDTail)[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class MessageHandlers(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0x14, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    # TODO: there's a lot of prettying up to do here...
+    misc: bytes = SF(cs.Bytes(cs.this.num_misc))
+    port: bytes = SF(cs.Bytes(cs.this.num_port)[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class DTMFDecoders(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0x15, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Byte)
+
+    # DTMF Commands Execute on Digit Count
+    port: int = SF(cs.Byte[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class CPWAccessTable(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0x16, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(1, cs.Byte))
+    num_elements: int = SF(cs.Byte)
+
+    # TODO: false is "Enabled", may want to invert
+    # TODO: associate with names
+    root_numbers: list[bool] = SF(cs.Flag[cs.this.num_elements])
+
+
+@ConfigRecord.register
+@dataclass
+class UserTimers(cst.TContainerBase):
+    class Resolution(cst.EnumBase):
+        # TODO: better names
+        _100ms = 0
+        _10ms = 1
+        _1s = 2
+        _10s = 3
+
+    record_type: int = SF(cs.Const(0x17, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(7, cs.Byte))
+    num_elements: int = SF(cs.Byte)
+
+    enable: list[bool] = SF(cs.Flag[cs.this.num_elements])
+    timer_value: list[int] = SF(cs.Int16ub[cs.this.num_elements])
+    # TODO: 0xff0000 is none, unclear what a set macro should be
+    timeout_macro: list[str] = SF(HexString(cs.Bytes(3))[cs.this.num_elements])
+    resolution: list[int] = SF(cst.TEnum(cs.Byte, Resolution)[cs.this.num_elements])
+
+
+@ConfigRecord.register
+@dataclass
+class CmdRespRouting(cst.TContainerBase):
+    record_type: int = SF(cs.Const(0x18, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Byte)
+    num_elements: int = SF(cs.Byte)
+
+    # TODO: what even is this?
+    stuff: list[bytes] = SF(cs.Bytes(cs.this.element_size)[cs.this.num_elements])
+
+
+@ConfigRecord.register
+@dataclass
+class ToneGenerators(cst.TContainerBase):
+    @dataclass
+    class PortToneGenerator(cst.TContainerBase):
+        class Mode(cst.EnumBase):
+            off = 0
+            continuous = 1
+            tone_on_when_ptt_keyed = 2
+            tone_on_when_ptt_not_keyed = 3
+
+        # TODO: 0 = "Message Handler", else "Tone Generator"
+        owner: bool = SF(cs.Flag)
+        mode: Mode = SF(cst.TEnum(cs.Byte, Mode))
+        # TODO: convert to dB? (looks like just divide by 2?)
+        message_level: int = SF(cs.Byte)
+        # TODO: displayed as 4 digits, 2 digits per nibble
+        # TODO: also maps to Hz, using (first_nibble * 5 + second_nibble + 0x104)
+        tone_code: list[int] = SF(cs.Bitwise(cs.Nibble[2]))
+        unknown: bytes = SF(cs.Bytes(3))
+
+    record_type: int = SF(cs.Const(0x19, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(7, cs.Byte))
+    num_misc: int = SF(cs.Const(0, cs.Byte))
+    num_port: int = SF(cs.Const(1, cs.Byte))
+
+    # TODO
+    port: list[bytes] = SF(cst.TStruct(PortToneGenerator)[PORT_NUM])
+
+
+@ConfigRecord.register
+@dataclass
+class LongNames(cst.TContainerBase):
+    @dataclass
+    class LongName(cst.TContainerBase):
+        enable: bool = SF(cs.Flag)
+        # TODO: convert to list of enabled ports, maybe an IntFlag
+        ports: list[bool] = SF(cs.ByteSwapped(cs.Flag[7]))
+        # TODO: starting with FF is "not set"
+        macro: str = SF(cs.Bytewise(cs.Padded(4, HexString(cs.Bytes(MACRO_LENGTH // 2)), b'\xff')))
+        name: str = SF(cs.Bytewise(cs.Padded(4, cs.NullTerminated(HexString(cs.GreedyBytes), term=b'\xff', require=False), b'\xff')))
+
+    record_type: int = SF(cs.Const(0x1a, cs.Byte))
+    attributes: int = SF(cs.Byte)
+    element_size: int = SF(cs.Const(9, cs.Byte))
+    num_misc: int = SF(cs.Byte)
+    num_port: int = SF(cs.Const(0, cs.Byte))
+
+    names: list[bytes] = SF(cst.TBitStruct(LongName)[cs.this.num_misc])
+

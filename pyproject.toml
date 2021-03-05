@@ -17,6 +17,8 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.8"
+construct = "^2.10.61"
+construct-typing = "^0.2.0"
 
 [tool.poetry.dev-dependencies]
 
@@ -26,3 +28,4 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 scom_audiolib_tool = 'scom7330.audiolib_tool:main'
+scom_config_reader = 'scom7330.config_reader:main'

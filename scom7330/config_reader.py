@@ -1,7 +1,13 @@
+#!/usr/bin/env python3
+
 import sys
 
-from audiolib import Header
-from config import bin
+import construct as cs
+import construct_typed as cst
+from datetime import datetime
+
+from .audiolib import Header
+from .config import bin
 
 
 def main():
@@ -13,16 +19,12 @@ def main():
     print(header)
 
     remaining = data[0x100:]
-    while len(remaining) > 0:
-        print(remaining[0])
-        for record_class in bin.ConfigRecord.__subclasses__():
-            if remaining[0] == record_class.record_type:
-                orig = remaining
-                record, remaining = record_class.from_bytes(remaining)
-                print(record)
-                print(orig[:len(record.to_bytes())])
-                print(record.to_bytes())
-                break
+    parsers = bin.ConfigRecord.get_parsers()
+    format = cs.GreedyRange(cs.Select(*parsers)) >> cs.HexDump(cs.GreedyBytes)
+
+    test = format.parse(remaining)
+    print(test[0])
+    print('next leftover:', test[1][:10])
 
 
 if __name__ == '__main__':
