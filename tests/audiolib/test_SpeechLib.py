@@ -5,7 +5,7 @@ from hashlib import md5
 from pathlib import Path
 from typing import Dict
 
-from scomspeech import Header, ImageHeader, Index, SpeechLib
+from scom7330.audiolib import Header, ImageHeader, Index, SpeechLib
 
 
 class TestSpeechLib(unittest.TestCase):

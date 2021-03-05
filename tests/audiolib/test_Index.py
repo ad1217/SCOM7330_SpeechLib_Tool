@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from scomspeech import Index
+from scom7330.audiolib import Index
 
 
 class TestIndex(unittest.TestCase):

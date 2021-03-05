@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from scomspeech import AudioData, AudioDataEntry, AudioLengthException
+from scom7330.audiolib import AudioData, AudioDataEntry, AudioLengthException
 
 
 class TestAudioDataEntry(unittest.TestCase):

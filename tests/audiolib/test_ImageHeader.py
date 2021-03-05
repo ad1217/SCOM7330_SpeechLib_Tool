@@ -1,6 +1,6 @@
 import unittest
 
-from scomspeech import ImageHeader
+from scom7330.audiolib import ImageHeader
 
 class TestImageHeader(unittest.TestCase):
     def test_to_bytes(self) -> None:

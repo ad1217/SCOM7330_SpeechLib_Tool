@@ -4,14 +4,14 @@ import argparse
 import logging
 from pathlib import Path
 
-import scomspeech
+from . import audiolib
 
 
 def info(input_file: Path) -> None:
     with open(input_file, 'rb') as f:
         data = f.read()
 
-    speechLib = scomspeech.SpeechLib.from_bytes(data)
+    speechLib = audiolib.SpeechLib.from_bytes(data)
 
     print(speechLib.header)
     print(speechLib.imageHeader)
@@ -28,7 +28,7 @@ def info(input_file: Path) -> None:
 
 
 def extract_audio(input_file: Path, output_dir: Path) -> None:
-    speechLib = scomspeech.SpeechLib.from_file(input_file)
+    speechLib = audiolib.SpeechLib.from_file(input_file)
 
     output_dir.mkdir(exist_ok=True)
 
@@ -38,7 +38,7 @@ def extract_audio(input_file: Path, output_dir: Path) -> None:
 
 
 def generate_CustomAudioLib(input_dir: Path, output_file: Path) -> None:
-    speechLib = scomspeech.SpeechLib.from_directory(input_dir)
+    speechLib = audiolib.SpeechLib.from_directory(input_dir)
 
     with open(output_file, 'wb') as f:
         f.write(speechLib.to_bytes())
